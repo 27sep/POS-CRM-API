@@ -24,6 +24,7 @@ const leadActivityRoutes = require('./routes/leadActivityRoutes');
 const leadPipelineRoutes = require("./routes/leadPipelineRoutes");
 const messageTemplate = require("./routes/messageTemplateRoutes");
 const messageHistory = require("./routes/messageHistoryRoutes");
+const salesTeamRoutes = require("./routes/salesTeamRoutes");
 
 
 app.use('/api/auth', authRoutes);
@@ -36,6 +37,7 @@ app.use('/api/lead-activities', leadActivityRoutes);
 app.use("/api/lead-pipeline", leadPipelineRoutes);
 app.use("/api/message-templates", messageTemplate);
 app.use("/api/message-history", messageHistory);
+app.use("/api/sales-teams", salesTeamRoutes);
 
 
 
