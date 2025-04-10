@@ -3,6 +3,7 @@ const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
 const User = require('../models/User');
 const twilio = require('twilio');
+const sendMail = require('../utils/mailer');
 
 const client = new twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN);
 
@@ -77,29 +78,46 @@ const authController = {
 
   // Forgot password
   forgotPassword: async (req, res) => {
-    const { email, phone } = req.body;
+    const { email } = req.body;
 
     try {
       const user = await User.findOne({ email });
       if (!user) {
-        return res.status(404).json({ success: false, code: "USER_NOT_FOUND", message: "User not found" });
+        return res.status(404).json({
+          success: false,
+          code: "USER_NOT_FOUND",
+          message: "User not found",
+        });
       }
 
       const resetToken = crypto.randomBytes(3).toString('hex'); // 6-digit code
       user.reset_token = resetToken;
-      user.reset_token_expires = Date.now() + 3600000;
+      user.reset_token_expires = Date.now() + 3600000; // 1 hour
       await user.save();
 
-      await client.messages.create({
-        body: `Your password reset code is: ${resetToken}`,
-        from: process.env.TWILIO_PHONE_NUMBER,
-        to: phone
-      });
+      const subject = "Password Reset Code";
+      const html = `
+        <div>
+          <h2>Hello ${user.name || "User"},</h2>
+          <p>You requested a password reset. Use the code below:</p>
+          <h1 style="color:#0195f7;">${resetToken}</h1>
+          <p>This code will expire in 1 hour.</p>
+        </div>
+      `;
 
-      res.json({ success: true, message: "Reset code sent via SMS" });
+      await sendMail(email, subject, html);
+
+      res.json({
+        success: true,
+        message: "Reset code sent to your email",
+      });
     } catch (err) {
       console.error(err.message);
-      res.status(500).json({ success: false, code: "SERVER_ERROR", message: "Server Error" });
+      res.status(500).json({
+        success: false,
+        code: "SERVER_ERROR",
+        message: "Server Error",
+      });
     }
   },
 
