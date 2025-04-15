@@ -26,6 +26,9 @@ const messageTemplate = require("./routes/messageTemplateRoutes");
 const messageHistory = require("./routes/messageHistoryRoutes");
 const salesTeamRoutes = require("./routes/salesTeamRoutes");
 const emailRoutes = require('./routes/email.routes');
+const smsRoutes = require('./routes/smsRoutes');
+
+
 
 
 app.use('/api/auth', authRoutes);
@@ -40,6 +43,7 @@ app.use("/api/message-templates", messageTemplate);
 app.use("/api/message-history", messageHistory);
 app.use("/api/sales-teams", salesTeamRoutes);
 app.use('/api/email', emailRoutes)
+app.use('/api/sms', smsRoutes);
 
 
 

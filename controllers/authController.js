@@ -3,7 +3,7 @@ const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
 const User = require('../models/User');
 const twilio = require('twilio');
-const sendMail = require('../utils/mailer');
+const {sendMail} = require('../utils/mailer');
 
 const client = new twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN);
 
@@ -78,8 +78,8 @@ const authController = {
 
   // Forgot password
   forgotPassword: async (req, res) => {
-    const { email } = req.body;
-
+    const { email, phone } = req.body;  
+  
     try {
       const user = await User.findOne({ email });
       if (!user) {
@@ -89,12 +89,12 @@ const authController = {
           message: "User not found",
         });
       }
-
+  
       const resetToken = crypto.randomBytes(3).toString('hex'); // 6-digit code
       user.reset_token = resetToken;
       user.reset_token_expires = Date.now() + 3600000; // 1 hour
       await user.save();
-
+  
       const subject = "Password Reset Code";
       const html = `
         <div>
@@ -104,12 +104,23 @@ const authController = {
           <p>This code will expire in 1 hour.</p>
         </div>
       `;
-
+  
+      // Send reset token via email
       await sendMail(email, subject, html);
-
+  
+      // Send reset token via SMS if phone number is provided
+      if (phone) {
+        const message = `Your password reset code is: ${resetToken}. It will expire in 1 hour.`;
+        await client.messages.create({
+          body: message,
+          from: process.env.TWILIO_PHONE_NUMBER, // Twilio phone number
+          to: phone, // User's phone number
+        });
+      }
+  
       res.json({
         success: true,
-        message: "Reset code sent to your email",
+        message: "Reset code sent to your email and/or phone",
       });
     } catch (err) {
       console.error(err.message);
@@ -117,6 +128,7 @@ const authController = {
         success: false,
         code: "SERVER_ERROR",
         message: "Server Error",
+        err: err,
       });
     }
   },
