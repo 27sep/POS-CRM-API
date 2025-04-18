@@ -50,7 +50,7 @@ const fetchIncomingReplies = async () => {
 
     connection.end();
   } catch (error) {
-    console.error('❌ Error fetching/saving replies:', error.message);
+    console.error(' Error fetching/saving replies:', error.message);
   }
 };
 

@@ -1,6 +1,8 @@
 const express = require('express');
 const router = express.Router();
 const LeadController = require('../controllers/leadController');
+const upload = require('../config/multer');
+
 
 // Create a new lead
 router.post('/create', LeadController.createLead);
@@ -16,5 +18,7 @@ router.put('/update/:id', LeadController.updateLead);
 
 // Delete a lead
 router.delete('/delete/:id', LeadController.deleteLead);
+
+router.post('/upload-csv', upload.single('csv'), LeadController.bulkImportLeads);
 
 module.exports = router;

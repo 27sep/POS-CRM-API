@@ -55,13 +55,13 @@ const fetchIncomingReplies = async () => {
         });
         console.log(`💾 Saved reply from ${from} with subject "${subject}"`);
       } else {
-        console.log(`❌ Skipped: from ${from} with subject "${subject}"`);
+        console.log(` Skipped: from ${from} with subject "${subject}"`);
       }
     }
 
     connection.end();
   } catch (error) {
-    console.error('❌ Error fetching/saving replies:', error.message);
+    console.error(' Error fetching/saving replies:', error.message);
   }
 };
 

@@ -1,5 +1,10 @@
 const Lead = require("../models/Lead");
 const User = require("../models/User");
+const fs = require("fs");
+const csv = require("csv-parser");
+const { sendBulkMail } = require("../utils/mailer");
+const { sendBulkSMS } = require("../utils/sms");  
+
 
 module.exports = {
   // Create a new lead
@@ -158,4 +163,126 @@ module.exports = {
       });
     }
   },
-};
+
+
+  bulkImportLeads: async (req, res) => {
+    try {
+      if (!req.file) {
+        return res.status(400).json({
+          success: false,
+          message: "CSV file is required",
+        });
+      }
+  
+      const leads = [];
+      const filePath = req.file.path;
+  
+      fs.createReadStream(filePath)
+        .pipe(csv())
+        .on("data", (row) => {
+          leads.push(row);
+        })
+        .on("end", async () => {
+          const savedLeads = [];
+          const emailsToSend = [];
+          const phoneNumbersToSend = [];
+  
+          for (let leadData of leads) {
+            try {
+              const {
+                first_name,
+                last_name,
+                email,
+                phone,
+                company,
+                status,
+                custom_fields,
+                assigned_to,
+                preferred_contact,
+                source,
+                lead_score,
+              } = leadData;
+  
+              let assignedUser = null;
+              if (assigned_to) {
+                assignedUser = await User.findById(assigned_to);
+                if (!assignedUser) continue;
+              }
+  
+              // Check and format the phone number if needed
+              let formattedPhone = phone;
+              if (formattedPhone && !formattedPhone.startsWith("+")) {
+                // If no country code is found, prepend '+91' (India)
+                formattedPhone = `+91${formattedPhone}`;
+              }
+  
+              const newLead = new Lead({
+                first_name,
+                last_name,
+                email,
+                phone: formattedPhone, // Store the formatted phone number
+                company,
+                status,
+                custom_fields: custom_fields ? JSON.parse(custom_fields) : {},
+                assigned_to: assignedUser ? assignedUser._id : null,
+                preferred_contact,
+                source,
+                lead_score,
+              });
+  
+              const saved = await newLead.save();
+              savedLeads.push(saved);
+  
+              if (email) emailsToSend.push(email);
+              if (formattedPhone) phoneNumbersToSend.push(formattedPhone);
+            } catch (err) {
+              console.error("Error saving lead:", err.message);
+              continue;
+            }
+          }
+  
+          fs.unlinkSync(filePath);
+  
+          // ✉️ Send bulk emails
+          if (emailsToSend.length > 0) {
+            try {
+              await sendBulkMail(
+                emailsToSend,
+                "Welcome to our CRM!",
+                `<p>Hello! You’ve been added to our CRM system. We’ll keep in touch!</p>`
+              );
+            } catch (mailErr) {
+              console.error("Failed to send some emails:", mailErr.message);
+            }
+          }
+  
+          // 📲 Send bulk SMS
+          if (phoneNumbersToSend.length > 0) {
+            try {
+              await sendBulkSMS(
+                phoneNumbersToSend,
+                "Hi! You’ve been added to our CRM. Stay tuned for updates."
+              );
+            } catch (smsErr) {
+              console.error("Failed to send some SMS:", smsErr.message);
+            }
+          }
+  
+          res.status(200).json({
+            success: true,
+            code: "LEADS_IMPORTED",
+            message: `${savedLeads.length} leads imported successfully, emails & SMS sent.`,
+            data: savedLeads,
+          });
+        });
+    } catch (err) {
+      console.error("Bulk upload error:", err.message);
+      res.status(500).json({
+        success: false,
+        message: "Server Error during bulk upload",
+      });
+    }
+  },
+  
+  
+}
