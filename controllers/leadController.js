@@ -165,8 +165,128 @@ module.exports = {
   },
 
 
+  // bulkImportLeads: async (req, res) => {
+  //   try {
+  //     if (!req.file) {
+  //       return res.status(400).json({
+  //         success: false,
+  //         message: "CSV file is required",
+  //       });
+  //     }
+  
+  //     const leads = [];
+  //     const filePath = req.file.path;
+  
+  //     fs.createReadStream(filePath)
+  //       .pipe(csv())
+  //       .on("data", (row) => {
+  //         leads.push(row);
+  //       })
+  //       .on("end", async () => {
+  //         const savedLeads = [];
+  //         const emailsToSend = [];
+  //         const phoneNumbersToSend = [];
+  
+  //         for (let leadData of leads) {
+  //           try {
+  //             const {
+  //               first_name,
+  //               last_name,
+  //               email,
+  //               phone,
+  //               company,
+  //               status,
+  //               custom_fields,
+  //               assigned_to,
+  //               preferred_contact,
+  //               source,
+  //               lead_score,
+  //             } = leadData;
+  
+  //             let assignedUser = null;
+  //             if (assigned_to) {
+  //               assignedUser = await User.findById(assigned_to);
+  //               if (!assignedUser) continue;
+  //             }
+  
+  //             // Check and format the phone number if needed
+  //             let formattedPhone = phone;
+  //             if (formattedPhone && !formattedPhone.startsWith("+")) {
+  //               // If no country code is found, prepend '+91' (India)
+  //               formattedPhone = `+91${formattedPhone}`;
+  //             }
+  
+  //             const newLead = new Lead({
+  //               first_name,
+  //               last_name,
+  //               email,
+  //               phone: formattedPhone, // Store the formatted phone number
+  //               company,
+  //               status,
+  //               custom_fields: custom_fields ? JSON.parse(custom_fields) : {},
+  //               assigned_to: assignedUser ? assignedUser._id : null,
+  //               preferred_contact,
+  //               source,
+  //               lead_score,
+  //             });
+  
+  //             const saved = await newLead.save();
+  //             savedLeads.push(saved);
+  
+  //             if (email) emailsToSend.push(email);
+  //             if (formattedPhone) phoneNumbersToSend.push(formattedPhone);
+  //           } catch (err) {
+  //             console.error("Error saving lead:", err.message);
+  //             continue;
+  //           }
+  //         }
+  
+  //         fs.unlinkSync(filePath);
+  
+  //         // ✉️ Send bulk emails
+  //         if (emailsToSend.length > 0) {
+  //           try {
+  //             await sendBulkMail(
+  //               emailsToSend,
+  //               "Welcome to our CRM!",
+  //               `<p>Hello! You’ve been added to our CRM system. We’ll keep in touch!</p>`
+  //             );
+  //           } catch (mailErr) {
+  //             console.error("Failed to send some emails:", mailErr.message);
+  //           }
+  //         }
+  
+  //         //  Send bulk SMS
+  //         if (phoneNumbersToSend.length > 0) {
+  //           try {
+  //             await sendBulkSMS(
+  //               phoneNumbersToSend,
+  //               "Hi! You’ve been added to our CRM. Stay tuned for updates."
+  //             );
+  //           } catch (smsErr) {
+  //             console.error("Failed to send some SMS:", smsErr.message);
+  //           }
+  //         }
+  
+  //         res.status(200).json({
+  //           success: true,
+  //           code: "LEADS_IMPORTED",
+  //           message: `${savedLeads.length} leads imported successfully, emails & SMS sent.`,
+  //           data: savedLeads,
+  //         });
+  //       });
+  //   } catch (err) {
+  //     console.error("Bulk upload error:", err.message);
+  //     res.status(500).json({
+  //       success: false,
+  //       message: "Server Error during bulk upload",
+  //     });
+  //   }
+  // },
   bulkImportLeads: async (req, res) => {
     try {
+      const { campaign_id, campaign_name, email_subject, email_body } = req.body;
+  
       if (!req.file) {
         return res.status(400).json({
           success: false,
@@ -174,20 +294,31 @@ module.exports = {
         });
       }
   
+      if (!campaign_id || !campaign_name || !email_subject || !email_body) {
+        return res.status(400).json({
+          success: false,
+          message: "Campaign ID, name, subject, and body are required.",
+        });
+      }
+  
       const leads = [];
+      const firstNames = []; 
       const filePath = req.file.path;
   
       fs.createReadStream(filePath)
         .pipe(csv())
         .on("data", (row) => {
           leads.push(row);
+          if (row.first_name) {  
+            firstNames.push(row.first_name);
+          }
         })
         .on("end", async () => {
           const savedLeads = [];
           const emailsToSend = [];
           const phoneNumbersToSend = [];
   
-          for (let leadData of leads) {
+          for (const leadData of leads) {
             try {
               const {
                 first_name,
@@ -209,10 +340,9 @@ module.exports = {
                 if (!assignedUser) continue;
               }
   
-              // Check and format the phone number if needed
+              // Format phone number with +91 if missing country code
               let formattedPhone = phone;
               if (formattedPhone && !formattedPhone.startsWith("+")) {
-                // If no country code is found, prepend '+91' (India)
                 formattedPhone = `+91${formattedPhone}`;
               }
   
@@ -220,7 +350,7 @@ module.exports = {
                 first_name,
                 last_name,
                 email,
-                phone: formattedPhone, // Store the formatted phone number
+                phone: formattedPhone,
                 company,
                 status,
                 custom_fields: custom_fields ? JSON.parse(custom_fields) : {},
@@ -241,22 +371,22 @@ module.exports = {
             }
           }
   
-          fs.unlinkSync(filePath);
+          fs.unlinkSync(filePath); // Clean up uploaded CSV file
   
-          // ✉️ Send bulk emails
+          // Send Bulk Email
           if (emailsToSend.length > 0) {
             try {
               await sendBulkMail(
                 emailsToSend,
-                "Welcome to our CRM!",
-                `<p>Hello! You’ve been added to our CRM system. We’ll keep in touch!</p>`
+                `[${campaign_id}] ${email_subject || campaign_name}`,firstNames,
+                email_body
               );
-            } catch (mailErr) {
-              console.error("Failed to send some emails:", mailErr.message);
+            } catch (emailErr) {
+              console.error("Email sending error:", emailErr.message);
             }
           }
   
-          // 📲 Send bulk SMS
+          //  Send Bulk SMS
           if (phoneNumbersToSend.length > 0) {
             try {
               await sendBulkSMS(
@@ -264,25 +394,24 @@ module.exports = {
                 "Hi! You’ve been added to our CRM. Stay tuned for updates."
               );
             } catch (smsErr) {
-              console.error("Failed to send some SMS:", smsErr.message);
+              console.error("SMS sending error:", smsErr.message);
             }
           }
   
           res.status(200).json({
             success: true,
             code: "LEADS_IMPORTED",
-            message: `${savedLeads.length} leads imported successfully, emails & SMS sent.`,
+            message: `${savedLeads.length} leads imported successfully. Emails and SMS sent.`,
             data: savedLeads,
           });
         });
     } catch (err) {
-      console.error("Bulk upload error:", err.message);
+      console.error("Bulk import error:", err.message);
       res.status(500).json({
         success: false,
-        message: "Server Error during bulk upload",
+        message: "Server error during bulk import.",
       });
     }
   },
-  
   
 }

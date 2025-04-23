@@ -17,19 +17,16 @@ const sendMail = async (to, subject, html) => {
   }
 };
 
-const sendBulkMail = async (recipients = [], subject, firstNames) => {
+const sendBulkMail = async (recipients = [], subject, firstNames = [],body) => {
   try {
     const results = [];
-    
-    // Loop through each recipient and send email
+
     for (let i = 0; i < recipients.length; i++) {
       const email = recipients[i];
-      const firstName = firstNames[i]; // Assuming firstNames is an array of first names
+      const firstName = firstNames[i] || "there";
 
-      // Generate the email content using the template
-      const htmlContent = welcomeTemplate(firstName);
+      const htmlContent = welcomeTemplate(firstName,body,subject);
 
-      // Send email
       const info = await transporter.sendMail({
         from: `"CRM App" <${process.env.SMTP_USER}>`,
         to: email,
@@ -42,7 +39,7 @@ const sendBulkMail = async (recipients = [], subject, firstNames) => {
 
     return results;
   } catch (err) {
-    console.error('Error sending bulk emails:', err);
+    console.error("Error sending bulk emails:", err);
     throw err;
   }
 };
