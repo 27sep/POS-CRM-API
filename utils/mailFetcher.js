@@ -1,5 +1,7 @@
 const imaps = require('imap-simple');
 const MailReply = require('../models/MailReply');
+const simpleParser = require('mailparser').simpleParser;
+
 require('dotenv').config();
 
 const config = {
@@ -30,12 +32,15 @@ const fetchIncomingReplies = async () => {
 
     for (const mail of results) {
       const header = mail.parts.find(p => p.which.includes('HEADER'));
-      const body = mail.parts.find(p => p.which === 'TEXT');
+      const bodyPart = mail.parts.find(p => p.which === 'TEXT');
 
       const from = header.body.from?.[0] || '';
       const subject = header.body.subject?.[0] || '';
       const date = new Date(header.body.date?.[0]);
-      const message = body.body;
+
+      // Parse and sanitize email body using mailparser
+      const parsed = await simpleParser(bodyPart.body);
+      const message = parsed.text?.trim() || '';
 
       const saved = await MailReply.create({
         from,
@@ -53,5 +58,6 @@ const fetchIncomingReplies = async () => {
     console.error(' Error fetching/saving replies:', error.message);
   }
 };
+
 
 module.exports = fetchIncomingReplies;
