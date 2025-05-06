@@ -1,6 +1,7 @@
 const Campaign = require("../models/Campaign");
 const User = require("../models/User");
 const CampaignType = require("../models/CampaignType");
+const QuickSearch = require("../services/quickSearch");
 
 module.exports = {
   // Create a new campaign
@@ -166,4 +167,8 @@ module.exports = {
       });
     }
   },
+  findCampaign: async (req, res) => {
+    return await QuickSearch.findRecords(req, res);
+  },
+
 };

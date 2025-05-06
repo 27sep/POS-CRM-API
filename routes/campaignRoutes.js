@@ -17,4 +17,7 @@ router.put('/update/:id', CampaignController.updateCampaign);
 // Delete a campaign
 router.delete('/delete/:id', CampaignController.deleteCampaign);
 
+// Get all campaigns
+router.get('/find-campaign', CampaignController.findCampaign);
+
 module.exports = router;
