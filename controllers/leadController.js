@@ -3,7 +3,7 @@ const User = require("../models/User");
 const fs = require("fs");
 const csv = require("csv-parser");
 const { sendBulkMail } = require("../utils/mailer");
-const { sendBulkSMS } = require("../utils/sms");  
+const { sendBulkSMS } = require("../utils/sms");
 
 
 module.exports = {
@@ -164,6 +164,30 @@ module.exports = {
     }
   },
 
+  readCSVFile: async (req, res) => {
+    try {
+      if (!req.file) {
+        return res.status(400).json({ message: "No file uploaded" });
+      }
+
+      const filePath = req.file.path;
+      const results = [];
+
+      fs.createReadStream(filePath)
+        .pipe(csv())
+        .on("data", (data) => results.push(data))
+        .on("end", () => {
+          fs.unlinkSync(filePath); // Remove the file after reading
+          res.status(200).json({ data: results });
+        })
+        .on("error", (err) => {
+          res.status(500).json({ message: "Error reading CSV file", error: err.message });
+        });
+    } catch (error) {
+      res.status(500).json({ message: "Internal Server Error", error: error.message });
+    }
+  },
+
 
   // bulkImportLeads: async (req, res) => {
   //   try {
@@ -173,10 +197,10 @@ module.exports = {
   //         message: "CSV file is required",
   //       });
   //     }
-  
+
   //     const leads = [];
   //     const filePath = req.file.path;
-  
+
   //     fs.createReadStream(filePath)
   //       .pipe(csv())
   //       .on("data", (row) => {
@@ -186,7 +210,7 @@ module.exports = {
   //         const savedLeads = [];
   //         const emailsToSend = [];
   //         const phoneNumbersToSend = [];
-  
+
   //         for (let leadData of leads) {
   //           try {
   //             const {
@@ -202,20 +226,20 @@ module.exports = {
   //               source,
   //               lead_score,
   //             } = leadData;
-  
+
   //             let assignedUser = null;
   //             if (assigned_to) {
   //               assignedUser = await User.findById(assigned_to);
   //               if (!assignedUser) continue;
   //             }
-  
+
   //             // Check and format the phone number if needed
   //             let formattedPhone = phone;
   //             if (formattedPhone && !formattedPhone.startsWith("+")) {
   //               // If no country code is found, prepend '+91' (India)
   //               formattedPhone = `+91${formattedPhone}`;
   //             }
-  
+
   //             const newLead = new Lead({
   //               first_name,
   //               last_name,
@@ -229,10 +253,10 @@ module.exports = {
   //               source,
   //               lead_score,
   //             });
-  
+
   //             const saved = await newLead.save();
   //             savedLeads.push(saved);
-  
+
   //             if (email) emailsToSend.push(email);
   //             if (formattedPhone) phoneNumbersToSend.push(formattedPhone);
   //           } catch (err) {
@@ -240,9 +264,9 @@ module.exports = {
   //             continue;
   //           }
   //         }
-  
+
   //         fs.unlinkSync(filePath);
-  
+
   //         // ✉️ Send bulk emails
   //         if (emailsToSend.length > 0) {
   //           try {
@@ -255,7 +279,7 @@ module.exports = {
   //             console.error("Failed to send some emails:", mailErr.message);
   //           }
   //         }
-  
+
   //         //  Send bulk SMS
   //         if (phoneNumbersToSend.length > 0) {
   //           try {
@@ -267,7 +291,7 @@ module.exports = {
   //             console.error("Failed to send some SMS:", smsErr.message);
   //           }
   //         }
-  
+
   //         res.status(200).json({
   //           success: true,
   //           code: "LEADS_IMPORTED",
@@ -286,30 +310,30 @@ module.exports = {
   bulkImportLeads: async (req, res) => {
     try {
       const { campaign_id, campaign_name, email_subject, email_body } = req.body;
-  
+
       if (!req.file) {
         return res.status(400).json({
           success: false,
           message: "CSV file is required",
         });
       }
-  
+
       if (!campaign_id || !campaign_name || !email_subject || !email_body) {
         return res.status(400).json({
           success: false,
           message: "Campaign ID, name, subject, and body are required.",
         });
       }
-  
+
       const leads = [];
-      const firstNames = []; 
+      const firstNames = [];
       const filePath = req.file.path;
-  
+
       fs.createReadStream(filePath)
         .pipe(csv())
         .on("data", (row) => {
           leads.push(row);
-          if (row.first_name) {  
+          if (row.first_name) {
             firstNames.push(row.first_name);
           }
         })
@@ -317,7 +341,7 @@ module.exports = {
           const savedLeads = [];
           const emailsToSend = [];
           const phoneNumbersToSend = [];
-  
+
           for (const leadData of leads) {
             try {
               const {
@@ -333,19 +357,19 @@ module.exports = {
                 source,
                 lead_score,
               } = leadData;
-  
+
               let assignedUser = null;
               if (assigned_to) {
                 assignedUser = await User.findById(assigned_to);
                 if (!assignedUser) continue;
               }
-  
+
               // Format phone number with +91 if missing country code
               let formattedPhone = phone;
               if (formattedPhone && !formattedPhone.startsWith("+")) {
                 formattedPhone = `+91${formattedPhone}`;
               }
-  
+
               const newLead = new Lead({
                 first_name,
                 last_name,
@@ -359,10 +383,10 @@ module.exports = {
                 source,
                 lead_score,
               });
-  
+
               const saved = await newLead.save();
               savedLeads.push(saved);
-  
+
               if (email) emailsToSend.push(email);
               if (formattedPhone) phoneNumbersToSend.push(formattedPhone);
             } catch (err) {
@@ -370,22 +394,22 @@ module.exports = {
               continue;
             }
           }
-  
+
           fs.unlinkSync(filePath); // Clean up uploaded CSV file
-  
+
           // Send Bulk Email
           if (emailsToSend.length > 0) {
             try {
               await sendBulkMail(
                 emailsToSend,
-                `[${campaign_id}] ${email_subject || campaign_name}`,firstNames,
+                `[${campaign_id}] ${email_subject || campaign_name}`, firstNames,
                 email_body
               );
             } catch (emailErr) {
               console.error("Email sending error:", emailErr.message);
             }
           }
-  
+
           //  Send Bulk SMS
           if (phoneNumbersToSend.length > 0) {
             try {
@@ -397,7 +421,7 @@ module.exports = {
               console.error("SMS sending error:", smsErr.message);
             }
           }
-  
+
           res.status(200).json({
             success: true,
             code: "LEADS_IMPORTED",
@@ -413,5 +437,5 @@ module.exports = {
       });
     }
   },
-  
+
 }

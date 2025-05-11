@@ -17,5 +17,7 @@ router.put('/update/:id', leadActivityController.updateLeadActivity);
 
 // Delete a lead activity
 router.delete('/delete/:id', leadActivityController.deleteLeadActivity);
+// Get lead activities by lead ID
+router.get('/:leadId/activities', leadActivityController.getLeadActivities);
 
 module.exports = router;

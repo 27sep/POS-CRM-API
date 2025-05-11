@@ -21,4 +21,6 @@ router.delete('/delete/:id', LeadController.deleteLead);
 
 router.post('/upload-csv', upload.single('csv'), LeadController.bulkImportLeads);
 
+router.post("/read-csv", upload.single("file"), LeadController.readCSVFile);
+
 module.exports = router;

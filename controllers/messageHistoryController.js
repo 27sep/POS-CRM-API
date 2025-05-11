@@ -2,6 +2,8 @@ const MessageHistory = require("../models/MessageHistory");
 const CampaignLead = require("../models/CampaignLead");
 const MessageTemplate = require("../models/MessageTemplate");
 const User = require("../models/User");
+const mongoose = require("mongoose");
+const QuickSearch = require("../services/quickSearch");
 
 module.exports = {
   // Create a new message history entry
@@ -119,5 +121,29 @@ module.exports = {
       console.error("Error deleting message history:", err.message);
       res.status(500).json({ success: false, code: "SERVER_ERROR", message: "Server Error" });
     }
+  },
+
+  getMessageHistory: async (req, res) => {
+    try {
+      // ✅ Validate ObjectId
+      if (!mongoose.Types.ObjectId.isValid(req.params.campaignLeadId)) {
+        return res.status(400).json({ success: false, error: 'Invalid Campaign Lead ID format' });
+      }
+
+      // ✅ Query the database
+      const messages = await MessageHistory.find({ campaign_lead_id: req.params.campaignLeadId })
+        .populate({ path: 'message_template_id', model: 'MessageTemplate', select: 'name type', strictPopulate: false })
+        .populate({ path: 'sender_id', model: 'User', select: 'first_name last_name', strictPopulate: false })
+        .sort({ sent_at: -1 });
+
+      res.json({ success: true, data: messages });
+    } catch (error) {
+      console.error(error); // More detailed error log
+      res.status(500).json({ success: false, error: error.message });
+    }
+  },
+
+  findMessageHistory: async (req, res) => {
+    return await QuickSearch.findRecords(req, res);
   },
 };

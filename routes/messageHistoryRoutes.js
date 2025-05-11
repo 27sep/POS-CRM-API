@@ -17,4 +17,8 @@ router.put('/update/:id', messageHistoryController.updateMessageHistory);
 // Delete a message history entry
 router.delete('/delete/:id', messageHistoryController.deleteMessageHistory);
 
+router.get('/campaign-leads/:campaignLeadId/messages', messageHistoryController.getMessageHistory);
+
+router.get('/find-messageHistory', messageHistoryController.findMessageHistory);
+
 module.exports = router;

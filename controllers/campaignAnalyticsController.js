@@ -1,5 +1,7 @@
 const CampaignAnalytics = require('../models/CampaignAnalytics');
 const Campaign = require('../models/Campaign');
+const CampaignType = require('../models/CampaignType');
+const User = require('../models/User');
 
 module.exports = {
   // Create a new campaign analytics record
@@ -160,4 +162,29 @@ module.exports = {
       });
     }
   },
+
+  getUserCampaignActivities: async (req, res) => {
+    try {
+      const activities = await CampaignAnalytics.find()
+      .populate({
+        path: 'campaign_id',
+        match: { creator_id: req.params.userId }, // Corrected filtering
+        populate: [
+          { path: 'campaign_type_id', model: 'CampaignType' },
+          { path: 'creator_id', model: 'User' } // Populating the creator correctly
+        ]
+      })
+      .sort({ record_date: -1 })
+      .limit(20);
+
+    // Filter out null campaigns if the match doesn't find anything
+    const filteredActivities = activities.filter(activity => activity.campaign_id !== null);
+
+
+      res.json({ success: true, data: filteredActivities });
+    } catch (error) {
+      res.status(500).json({ success: false, error: error.message });
+    }
+  },
+
 };

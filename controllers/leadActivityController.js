@@ -1,6 +1,7 @@
 const LeadActivity = require("../models/LeadActivity");
 const Lead = require("../models/Lead");
 const User = require("../models/User");
+const mongoose = require("mongoose");
 
 module.exports = {
   // Create a new lead activity
@@ -157,6 +158,27 @@ module.exports = {
         code: "SERVER_ERROR",
         message: "Server Error",
       });
+    }
+  },
+
+
+  getLeadActivities:  async (req, res) => {
+    try {
+      // ✅ Validate ObjectId
+      if (!mongoose.Types.ObjectId.isValid(req.params.leadId)) {
+        return res.status(400).json({ success: false, error: 'Invalid Lead ID format' });
+      }
+  
+      // ✅ Proceed if valid
+      const activities = await LeadActivity.find({ lead_id: req.params.leadId })
+        .populate({ path: 'user_id', model: 'User', select: 'first_name last_name email' })
+        .populate({ path: 'lead_id', model: 'Lead' })
+        .sort({ activity_date: -1 });
+  
+      res.json({ success: true, data: activities });
+    } catch (error) {
+      console.error(error); // More detailed error log
+      res.status(500).json({ success: false, error: error.message });
     }
   },
 };
