@@ -170,5 +170,36 @@ module.exports = {
   findCampaign: async (req, res) => {
     return await QuickSearch.findRecords(req, res);
   },
+  // Get campaigns by creator ID
+getCampaignsByUser: async (req, res) => {
+  const { creator_id } = req.params;
+
+  try {
+    const campaigns = await Campaign.find({ creator_id });
+
+    if (!campaigns.length) {
+      return res.status(404).json({
+        success: false,
+        code: "CAMPAIGNS_NOT_FOUND",
+        message: "No campaigns found for the specified creator",
+      });
+    }
+
+    res.json({
+      success: true,
+      code: "CAMPAIGNS_FETCHED",
+      message: "Campaigns fetched successfully",
+      data: campaigns,
+    });
+  } catch (err) {
+    console.error("Error fetching campaigns by user:", err.message);
+    res.status(500).json({
+      success: false,
+      code: "SERVER_ERROR",
+      message: "Server Error",
+    });
+  }
+},
+
 
 };

@@ -18,4 +18,7 @@ router.put('/update/:id', campaignAnalyticsController.updateCampaignAnalytics);
 // Delete campaign analytics entry
 router.delete('/delete/:id', campaignAnalyticsController.deleteCampaignAnalytics);
 
+// Get all leads for a specific user
+router.get('/users/:userId/campaign-activities', campaignAnalyticsController.getUserCampaignActivities);
+
 module.exports = router;
