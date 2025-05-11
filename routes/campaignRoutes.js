@@ -20,4 +20,7 @@ router.delete('/delete/:id', CampaignController.deleteCampaign);
 // Get all campaigns
 router.get('/find-campaign', CampaignController.findCampaign);
 
+// Get all campaigns by creator ID
+router.get('/user/:creator_id', CampaignController.getCampaignsByUser);
+
 module.exports = router;

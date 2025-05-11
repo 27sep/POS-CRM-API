@@ -1,6 +1,7 @@
 // app.js
 const express = require('express');
 const connectDB = require('./config/db');
+const cors = require('cors'); 
 require('dotenv').config();
 
 // Initialize app
@@ -10,6 +11,7 @@ const app = express();
 connectDB();
 
 // Middleware
+app.use(cors()); 
 app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
 
