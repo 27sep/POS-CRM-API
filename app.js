@@ -29,6 +29,9 @@ const messageHistory = require("./routes/messageHistoryRoutes");
 const salesTeamRoutes = require("./routes/salesTeamRoutes");
 const emailRoutes = require('./routes/email.routes');
 const smsRoutes = require('./routes/smsRoutes');
+const followUpRoutes = require('./routes/followUpRoutes');
+const scrapingRoutes = require('./routes/scrapingRoutes');
+
 
 
 
@@ -46,6 +49,9 @@ app.use("/api/message-history", messageHistory);
 app.use("/api/sales-teams", salesTeamRoutes);
 app.use('/api/email', emailRoutes)
 app.use('/api/sms', smsRoutes);
+app.use('/api/follow-ups',followUpRoutes);
+app.use('/api/scraping',scrapingRoutes);
+
 
 
 
