@@ -1,11 +1,38 @@
-
+// server.js
+require('dotenv').config();
 const app = require('./app');
 const startFetchRepliesJob = require('./cronJobs/fetchRepliesCron');
+const { loginRingCentral } = require('./config/ringcentral');
 
 const PORT = process.env.PORT || 5000;
 
-startFetchRepliesJob();
+async function startServer() {
+  try {
+    console.log('🚀 Starting server initialization...');
 
-app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
-});
+    // 1️⃣ Initialize RingCentral API connection
+    await loginRingCentral();
+    console.log('✅ RingCentral connected successfully');
+
+    // 2️⃣ Start any background/cron jobs
+    if (typeof startFetchRepliesJob === 'function') {
+      startFetchRepliesJob();
+      console.log('🕒 Cron job for fetching replies started');
+    } else {
+      console.warn('⚠️ No cron job found for fetchRepliesCron');
+    }
+
+    // 3️⃣ Start Express server
+    app.listen(PORT, () => {
+      console.log(`🌐 Server running on port ${PORT}`);
+      console.log(`➡️  Visit: http://localhost:${PORT}`);
+    });
+
+  } catch (error) {
+    console.error('❌ Error during server startup:', error.message);
+    process.exit(1); // Exit the process if startup fails
+  }
+}
+
+// Start the app
+startServer();
