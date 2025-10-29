@@ -33,6 +33,7 @@ const emailRoutes = require('./routes/email.routes');
 const smsRoutes = require('./routes/smsRoutes');
 const followUpRoutes = require('./routes/followUpRoutes');
 const scrapingRoutes = require('./routes/scrapingRoutes');
+const apolloPersonRoutes = require('./routes/apolloPersonRoutes');
 
 
 
@@ -53,6 +54,8 @@ app.use('/api/email', emailRoutes)
 app.use('/api/sms', smsRoutes);
 app.use('/api/follow-ups',followUpRoutes);
 app.use('/api/scraping',scrapingRoutes);
+app.use('/api/apollo-person',apolloPersonRoutes);
+
 
 
 
