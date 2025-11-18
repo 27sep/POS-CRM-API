@@ -1,21 +1,33 @@
+// config/ringcentral.js
 const RingCentral = require('@ringcentral/sdk').SDK;
 
-const rcsdk = new RingCentral({
-  server: process.env.RINGCENTRAL_SERVER_URL,
-  clientId: process.env.RINGCENTRAL_CLIENT_ID,
-  clientSecret: process.env.RINGCENTRAL_CLIENT_SECRET,
-});
+let rcsdk;
+let platform;
 
 async function loginRingCentral() {
   try {
-    const platform = rcsdk.platform();
+    rcsdk = new RingCentral({
+      server: process.env.RINGCENTRAL_SERVER_URL,
+      clientId: process.env.RINGCENTRAL_CLIENT_ID,
+      clientSecret: process.env.RINGCENTRAL_CLIENT_SECRET,
+    });
+
+    platform = rcsdk.platform();
+
+    // Login using JWT
     await platform.login({ jwt: process.env.RINGCENTRAL_JWT });
 
     console.log("✅ RingCentral connected successfully via JWT");
-    return platform;
   } catch (error) {
     console.error("❌ RingCentral Login Failed:", error.message);
   }
 }
 
-module.exports = { loginRingCentral, rcsdk };
+function getPlatform() {
+  if (!platform) {
+    throw new Error("⚠️ RingCentral platform not initialized. Call loginRingCentral() first.");
+  }
+  return platform;
+}
+
+module.exports = { loginRingCentral, getPlatform };

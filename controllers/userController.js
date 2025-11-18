@@ -1,5 +1,6 @@
+// controllers/userController.js
 const bcrypt = require("bcryptjs");
-const User = require("../models/user");
+const User = require("../models/User");
 
 module.exports = {
   // Register a new user
@@ -18,7 +19,7 @@ module.exports = {
         firstName,
         lastName,
         email,
-        password: hashedPassword,
+        password_hash: hashedPassword,
         role: role || "user",
       });
 
@@ -89,4 +90,54 @@ module.exports = {
       res.status(500).json({ success: false, code: "SERVER_ERROR", message: "Server Error" });
     }
   },
+
+  // ===============================
+  // Assign phone numbers to sales_manager
+  // ===============================
+  assignNumbers: async (req, res) => {
+    const { userId, numbers } = req.body; // numbers = array of strings
+    try {
+      const user = await User.findById(userId);
+      if (!user) return res.status(404).json({ success: false, message: "User not found" });
+      if (user.role !== "sales_manager") return res.status(403).json({ success: false, message: "Numbers can only be assigned to sales_manager" });
+
+      user.assigned_numbers = Array.from(new Set([...(user.assigned_numbers || []), ...numbers]));
+      await user.save();
+
+      res.json({ success: true, message: "Numbers assigned successfully", assigned_numbers: user.assigned_numbers });
+    } catch (err) {
+      console.error("Error assigning numbers:", err.message);
+      res.status(500).json({ success: false, message: "Server Error" });
+    }
+  },
+
+  // Remove numbers from sales_manager
+  removeNumbers: async (req, res) => {
+    const { userId, numbers } = req.body;
+    try {
+      const user = await User.findById(userId);
+      if (!user) return res.status(404).json({ success: false, message: "User not found" });
+      if (user.role !== "sales_manager") return res.status(403).json({ success: false, message: "Numbers can only be removed from sales_manager" });
+
+      user.assigned_numbers = (user.assigned_numbers || []).filter(n => !numbers.includes(n));
+      await user.save();
+
+      res.json({ success: true, message: "Numbers removed successfully", assigned_numbers: user.assigned_numbers });
+    } catch (err) {
+      console.error("Error removing numbers:", err.message);
+      res.status(500).json({ success: false, message: "Server Error" });
+    }
+  },
+
+  // List assigned numbers
+  listAssignedNumbers: async (req, res) => {
+    try {
+      const user = await User.findById(req.params.id);
+      if (!user) return res.status(404).json({ success: false, message: "User not found" });
+      res.json({ success: true, assigned_numbers: user.assigned_numbers || [] });
+    } catch (err) {
+      console.error("Error fetching assigned numbers:", err.message);
+      res.status(500).json({ success: false, message: "Server Error" });
+    }
+  }
 };

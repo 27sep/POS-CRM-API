@@ -7,14 +7,14 @@ const { loginRingCentral } = require('./config/ringcentral');
 const PORT = process.env.PORT || 5000;
 
 async function startServer() {
-  try {
-    console.log('🚀 Starting server initialization...');
+  console.log('🚀 Starting server initialization...');
 
-    // 1️⃣ Initialize RingCentral API connection
+  try {
+    // 1️⃣ Initialize RingCentral connection
     await loginRingCentral();
     console.log('✅ RingCentral connected successfully');
 
-    // 2️⃣ Start any background/cron jobs
+    // 2️⃣ Start background/cron jobs (if available)
     if (typeof startFetchRepliesJob === 'function') {
       startFetchRepliesJob();
       console.log('🕒 Cron job for fetching replies started');
@@ -30,9 +30,8 @@ async function startServer() {
 
   } catch (error) {
     console.error('❌ Error during server startup:', error.message);
-    process.exit(1); // Exit the process if startup fails
+    process.exit(1); // Stop the process if initialization fails
   }
 }
 
-// Start the app
 startServer();

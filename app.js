@@ -45,6 +45,10 @@ const followUpRoutes = require('./routes/followUpRoutes');
 const scrapingRoutes = require('./routes/scrapingRoutes');
 const apolloPersonRoutes = require('./routes/apolloPersonRoutes');
 const ringcentralRoutes = require('./routes/ringcentralRoutes'); // ✅ Added RingCentral route
+const ringCentralSMSRoutes = require('./routes/ringCentralSMSRoutes');
+const userRoutes = require('./routes/userRoutes');
+
+
 
 // Register routes
 app.use('/api/auth', authRoutes);
@@ -64,6 +68,8 @@ app.use('/api/follow-ups', followUpRoutes);
 app.use('/api/scraping', scrapingRoutes);
 app.use('/api/apollo-person', apolloPersonRoutes);
 app.use('/api/ringcentral', ringcentralRoutes); // ✅ RingCentral API route
+app.use('/api/ringcentral/sms', ringCentralSMSRoutes);
+app.use('/api/users', userRoutes);
 
 // Root route
 app.get('/', (req, res) => res.send('API is running...'));
