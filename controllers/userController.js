@@ -1,41 +1,35 @@
-// controllers/userController.js
 const bcrypt = require("bcryptjs");
+const jwt = require("jsonwebtoken");
 const User = require("../models/User");
+const getAdminToken = require("../utils/getAdminToken");
+
+const JWT_SECRET = process.env.JWT_SECRET;
 
 module.exports = {
-  // Register a new user
+  // REGISTER NEW USER
   registerUser: async (req, res) => {
-    const { firstName, lastName, email, password, role } = req.body;
-
     try {
+      const { firstName, lastName, email, password, role } = req.body;
+
       const existingUser = await User.findOne({ email });
-      if (existingUser) {
-        return res.status(400).json({ success: false, code: "USER_EXISTS", message: "User with this email already exists" });
-      }
+      if (existingUser)
+        return res.status(400).json({ success: false, code: "USER_EXISTS", message: "User already exists" });
 
       const hashedPassword = await bcrypt.hash(password, 10);
-
-      const newUser = new User({
-        firstName,
-        lastName,
-        email,
-        password_hash: hashedPassword,
-        role: role || "user",
-      });
+      const newUser = new User({ firstName, lastName, email, password_hash: hashedPassword, role: role || "user" });
 
       await newUser.save();
-
       res.json({ success: true, code: "USER_CREATED", message: "User registered successfully" });
     } catch (err) {
       console.error("Error registering user:", err.message);
-      res.status(500).json({ success: false, code: "SERVER_ERROR", message: "Server Error", error: err });
+      res.status(500).json({ success: false, code: "SERVER_ERROR", message: "Server Error", error: err.message });
     }
   },
 
-  // Get all users
+  // GET ALL USERS
   getAllUsers: async (req, res) => {
     try {
-      const users = await User.find();
+      const users = await User.find().select("-password_hash");
       res.json({ success: true, code: "USERS_FETCHED", message: "Users fetched successfully", data: users });
     } catch (err) {
       console.error("Error fetching users:", err.message);
@@ -43,11 +37,12 @@ module.exports = {
     }
   },
 
-  // Get a user by ID
+  // GET USER BY ID
   getUserById: async (req, res) => {
     try {
-      const user = await User.findById(req.params.id);
+      const user = await User.findById(req.params.id).select("-password_hash");
       if (!user) return res.status(404).json({ success: false, code: "USER_NOT_FOUND", message: "User not found" });
+
       res.json({ success: true, code: "USER_FETCHED", message: "User fetched successfully", data: user });
     } catch (err) {
       console.error("Error fetching user:", err.message);
@@ -55,10 +50,10 @@ module.exports = {
     }
   },
 
-  // Update a user
+  // UPDATE USER
   updateUser: async (req, res) => {
-    const updates = req.body;
     try {
+      const updates = req.body;
       let user = await User.findById(req.params.id);
       if (!user) return res.status(404).json({ success: false, code: "USER_NOT_FOUND", message: "User not found" });
 
@@ -77,7 +72,7 @@ module.exports = {
     }
   },
 
-  // Delete a user
+  // DELETE USER
   deleteUser: async (req, res) => {
     try {
       const user = await User.findById(req.params.id);
@@ -91,12 +86,10 @@ module.exports = {
     }
   },
 
-  // ===============================
-  // Assign phone numbers to sales_manager
-  // ===============================
+  // ASSIGN NUMBERS
   assignNumbers: async (req, res) => {
-    const { userId, numbers } = req.body; // numbers = array of strings
     try {
+      const { userId, numbers } = req.body;
       const user = await User.findById(userId);
       if (!user) return res.status(404).json({ success: false, message: "User not found" });
       if (user.role !== "sales_manager") return res.status(403).json({ success: false, message: "Numbers can only be assigned to sales_manager" });
@@ -111,15 +104,15 @@ module.exports = {
     }
   },
 
-  // Remove numbers from sales_manager
+  // REMOVE NUMBERS
   removeNumbers: async (req, res) => {
-    const { userId, numbers } = req.body;
     try {
+      const { userId, numbers } = req.body;
       const user = await User.findById(userId);
       if (!user) return res.status(404).json({ success: false, message: "User not found" });
       if (user.role !== "sales_manager") return res.status(403).json({ success: false, message: "Numbers can only be removed from sales_manager" });
 
-      user.assigned_numbers = (user.assigned_numbers || []).filter(n => !numbers.includes(n));
+      user.assigned_numbers = (user.assigned_numbers || []).filter((n) => !numbers.includes(n));
       await user.save();
 
       res.json({ success: true, message: "Numbers removed successfully", assigned_numbers: user.assigned_numbers });
@@ -129,15 +122,16 @@ module.exports = {
     }
   },
 
-  // List assigned numbers
+  // LIST ASSIGNED NUMBERS
   listAssignedNumbers: async (req, res) => {
     try {
       const user = await User.findById(req.params.id);
       if (!user) return res.status(404).json({ success: false, message: "User not found" });
+
       res.json({ success: true, assigned_numbers: user.assigned_numbers || [] });
     } catch (err) {
       console.error("Error fetching assigned numbers:", err.message);
       res.status(500).json({ success: false, message: "Server Error" });
     }
-  }
+  },
 };
