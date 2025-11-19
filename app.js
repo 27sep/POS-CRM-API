@@ -44,11 +44,9 @@ const smsRoutes = require('./routes/smsRoutes');
 const followUpRoutes = require('./routes/followUpRoutes');
 const scrapingRoutes = require('./routes/scrapingRoutes');
 const apolloPersonRoutes = require('./routes/apolloPersonRoutes');
-const ringcentralRoutes = require('./routes/ringcentralRoutes'); // ✅ Added RingCentral route
+const ringcentralRoutes = require('./routes/ringcentralRoutes');
 const ringCentralSMSRoutes = require('./routes/ringCentralSMSRoutes');
 const userRoutes = require('./routes/userRoutes');
-
-
 
 // Register routes
 app.use('/api/auth', authRoutes);
@@ -67,12 +65,45 @@ app.use('/api/sms', smsRoutes);
 app.use('/api/follow-ups', followUpRoutes);
 app.use('/api/scraping', scrapingRoutes);
 app.use('/api/apollo-person', apolloPersonRoutes);
-app.use('/api/ringcentral', ringcentralRoutes); // ✅ RingCentral API route
+app.use('/api/ringcentral', ringcentralRoutes);
 app.use('/api/ringcentral/sms', ringCentralSMSRoutes);
 app.use('/api/users', userRoutes);
 
+// Health check route (REQUIRED for Render)
+app.get('/health', (req, res) => {
+  res.status(200).json({
+    status: 'OK',
+    message: 'Server is running',
+    timestamp: new Date().toISOString(),
+    environment: process.env.NODE_ENV || 'development',
+    port: process.env.PORT || 5000
+  });
+});
+
 // Root route
-app.get('/', (req, res) => res.send('API is running...'));
+app.get('/', (req, res) => {
+  res.json({
+    message: 'RingCentral CRM API Server',
+    version: '1.0.0',
+    status: 'running',
+    timestamp: new Date().toISOString(),
+    endpoints: {
+      auth: '/api/auth',
+      ringcentral: '/api/ringcentral',
+      sms: '/api/ringcentral/sms',
+      health: '/health'
+    }
+  });
+});
+
+// 404 handler for undefined routes
+app.use('*', (req, res) => {
+  res.status(404).json({
+    success: false,
+    message: `Route ${req.originalUrl} not found`,
+    method: req.method
+  });
+});
 
 // Global error handler
 app.use((err, req, res, next) => {
@@ -81,6 +112,7 @@ app.use((err, req, res, next) => {
     success: false,
     code: 'SERVER_ERROR',
     message: 'Something went wrong!',
+    ...(process.env.NODE_ENV === 'development' && { stack: err.stack })
   });
 });
 
