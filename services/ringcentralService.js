@@ -25,92 +25,59 @@ async function fetchAllCallLogs(platform, query) {
   return allRecords;
 }
 
-// 📥 Fetch Inbound Call Logs
-async function getInboundCallLogs({ dateFrom, dateTo, assignedNumbers = null } = {}) {
-  try {
-    const platform = getPlatform();
-    const query = {
-      perPage: 1000,
-      view: 'Simple',
-      direction: 'Inbound',
-      showBlocked: true,
-    };
+// 📥 Fetch Inbound Call Logs (all fields)
+async function getInboundCallLogs(params = {}) {
+  const { dateFrom, dateTo } = params;
+  const platform = getPlatform();
 
-    if (dateFrom) query.dateFrom = dateFrom;
-    if (dateTo) query.dateTo = dateTo;
+  const query = {
+    perPage: 1000,
+    view: 'Detailed',
+    showBlocked: true,
+  };
+  if (dateFrom) query.dateFrom = dateFrom;
+  if (dateTo) query.dateTo = dateTo;
 
-    const records = await fetchAllCallLogs(platform, query);
+  const records = await fetchAllCallLogs(platform, query);
 
-    // Optional: filter assigned numbers directly here
-    let filteredRecords = records;
-    if (assignedNumbers?.length) {
-      const normalizedAssigned = assignedNumbers.map(n => n.replace(/\D/g, ""));
-      filteredRecords = records.filter(
-        (r) =>
-          normalizedAssigned.includes((r.from?.phoneNumber || "").replace(/\D/g, "")) ||
-          normalizedAssigned.includes((r.to?.phoneNumber || "").replace(/\D/g, ""))
-      );
-    }
+  // 1️⃣ Filter main records by inbound
+  const inboundLogs = records.filter(record => record.direction === 'Inbound');
 
-    return filteredRecords.map(log => ({
-      id: log.id,
-      fromNumber: log.from?.phoneNumber || 'Unknown',
-      toNumber: log.to?.phoneNumber || 'Unknown',
-      startTime: log.startTime,
-      duration: log.duration,
-      result: log.result,
-      type: log.type,
-    }));
+  // 2️⃣ Filter legs so only inbound legs remain
+  const cleanedLogs = inboundLogs.map(record => ({
+    ...record,
+    legs: (record.legs || []).filter(leg => leg.direction === 'Inbound')
+  }));
 
-  } catch (error) {
-    console.error('❌ Error fetching inbound call logs:', error.message);
-    if (error.response) console.error('🔍 API Response:', await error.response.text());
-    throw error;
-  }
+  return cleanedLogs;
 }
 
-// 📤 Fetch Outbound Call Logs
-async function getOutboundCallLogs({ dateFrom, dateTo, assignedNumbers = null } = {}) {
-  try {
-    const platform = getPlatform();
-    const query = {
-      perPage: 1000,
-      view: 'Simple',
-      direction: 'Outbound',
-      showBlocked: true,
-    };
 
-    if (dateFrom) query.dateFrom = dateFrom;
-    if (dateTo) query.dateTo = dateTo;
+// 📤 Fetch Outbound Call Logs (all fields)
+async function getOutboundCallLogs(params = {}) {
+  const { dateFrom, dateTo } = params;
+  const platform = getPlatform();
 
-    const records = await fetchAllCallLogs(platform, query);
+  const query = {
+    perPage: 1000,
+    view: 'Detailed',
+    showBlocked: true,
+  };
+  if (dateFrom) query.dateFrom = dateFrom;
+  if (dateTo) query.dateTo = dateTo;
 
-    // Optional: filter assigned numbers directly here
-    let filteredRecords = records;
-    if (assignedNumbers?.length) {
-      const normalizedAssigned = assignedNumbers.map(n => n.replace(/\D/g, ""));
-      filteredRecords = records.filter(
-        (r) =>
-          normalizedAssigned.includes((r.from?.phoneNumber || "").replace(/\D/g, "")) ||
-          normalizedAssigned.includes((r.to?.phoneNumber || "").replace(/\D/g, ""))
-      );
-    }
+  const records = await fetchAllCallLogs(platform, query);
 
-    return filteredRecords.map(log => ({
-      id: log.id,
-      fromNumber: log.from?.phoneNumber || 'Unknown',
-      toNumber: log.to?.phoneNumber || 'Unknown',
-      startTime: log.startTime,
-      duration: log.duration,
-      result: log.result,
-      type: log.type,
-    }));
+  // 1️⃣ Filter main records by outbound
+  const outboundLogs = records.filter(record => record.direction === 'Outbound');
 
-  } catch (error) {
-    console.error('❌ Error fetching outbound call logs:', error.message);
-    if (error.response) console.error('🔍 API Response:', await error.response.text());
-    throw error;
-  }
+  // 2️⃣ Filter legs so only outbound legs remain
+  const cleanedLogs = outboundLogs.map(record => ({
+    ...record,
+    legs: (record.legs || []).filter(leg => leg.direction === 'Outbound')
+  }));
+
+  return cleanedLogs;
 }
 
 module.exports = { getInboundCallLogs, getOutboundCallLogs };

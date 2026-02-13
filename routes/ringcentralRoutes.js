@@ -1,15 +1,20 @@
-// routes/ringcentralRoutes.js
 const express = require("express");
 const router = express.Router();
 
 const {
   fetchInboundSummary,
   fetchOutboundSummary,
+  answerCall,
+  hangupCall,
+  muteCall,
+  holdCall,
+  recordCall,
 } = require("../controllers/ringcentralController");
+
 
 const { authMiddleware } = require("../middlewares/authMiddleware");
 
-// Apply authentication middleware
+// 🔐 Apply authentication middleware (ALL routes below are protected)
 router.use(authMiddleware);
 
 /*
@@ -19,9 +24,8 @@ router.use(authMiddleware);
 */
 router.get("/inbound-summary", async (req, res) => {
   try {
-    const { role, assigned_numbers = [] } = req.user;
+    const { role } = req.user;
 
-    // Controller already filters based on role
     const result = await fetchInboundSummary(req, null, true);
     const summary = Array.isArray(result?.summary) ? result.summary : [];
 
@@ -31,7 +35,6 @@ router.get("/inbound-summary", async (req, res) => {
       totalInboundCalls: summary.length,
       summary,
     });
-
   } catch (error) {
     console.error("🔴 ROUTE ERROR (INBOUND):", error);
     return res.status(500).json({ success: false, message: "Server Error" });
@@ -45,9 +48,8 @@ router.get("/inbound-summary", async (req, res) => {
 */
 router.get("/outbound-summary", async (req, res) => {
   try {
-    const { role, assigned_numbers = [] } = req.user;
+    const { role } = req.user;
 
-    // Controller already filters
     const result = await fetchOutboundSummary(req, null, true);
     const summary = Array.isArray(result?.summary) ? result.summary : [];
 
@@ -57,11 +59,31 @@ router.get("/outbound-summary", async (req, res) => {
       totalOutboundCalls: summary.length,
       summary,
     });
-
   } catch (error) {
     console.error("🔴 ROUTE ERROR (OUTBOUND):", error);
     return res.status(500).json({ success: false, message: "Server Error" });
   }
 });
+
+/*
+--------------------------------------
+ 📞 CALL CONTROL APIs (LIVE)
+--------------------------------------
+*/
+
+// ✅ Answer incoming call
+router.post("/call/answer", answerCall);
+
+// ❌ Hangup / End call
+router.post("/call/hangup", hangupCall);
+
+// 🔇 Mute / Unmute
+router.post("/call/mute", muteCall);
+
+// ⏸ Hold / Resume
+router.post("/call/hold", holdCall);
+
+// ⏺ Start / Stop Recording
+router.post("/call/record", recordCall);
 
 module.exports = router;

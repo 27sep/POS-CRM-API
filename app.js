@@ -13,15 +13,6 @@ const app = express();
 // Connect to database
 connectDB();
 
-// Initialize RingCentral on startup
-(async () => {
-  try {
-    await loginRingCentral();
-  } catch (err) {
-    console.error('❌ RingCentral initialization failed:', err.message);
-  }
-})();
-
 // Middleware
 app.use(cors());
 app.use(express.json());
@@ -47,6 +38,7 @@ const apolloPersonRoutes = require('./routes/apolloPersonRoutes');
 const ringcentralRoutes = require('./routes/ringcentralRoutes');
 const ringCentralSMSRoutes = require('./routes/ringCentralSMSRoutes');
 const userRoutes = require('./routes/userRoutes');
+const ringcentralWebhookRoutes = require("./routes/ringcentralWebhookRoutes");
 
 // Register routes
 app.use('/api/auth', authRoutes);
@@ -65,9 +57,18 @@ app.use('/api/sms', smsRoutes);
 app.use('/api/follow-ups', followUpRoutes);
 app.use('/api/scraping', scrapingRoutes);
 app.use('/api/apollo-person', apolloPersonRoutes);
-app.use('/api/ringcentral', ringcentralRoutes);
-app.use('/api/ringcentral/sms', ringCentralSMSRoutes);
 app.use('/api/users', userRoutes);
+app.use("/test", require("./routes/testSocket"));
+// ================= RINGCENTRAL =================
+
+// 1️⃣ Webhook FIRST (no JWT)
+app.use("/api/ringcentral", ringcentralWebhookRoutes);
+
+// 2️⃣ Normal RingCentral APIs (JWT protected inside route file)
+app.use('/api/ringcentral', ringcentralRoutes);
+
+// 3️⃣ SMS APIs
+app.use('/api/ringcentral/sms', ringCentralSMSRoutes);
 
 // Health check route (REQUIRED for Render)
 app.get('/health', (req, res) => {
