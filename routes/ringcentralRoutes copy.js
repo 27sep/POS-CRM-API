@@ -11,17 +11,18 @@ const {
   recordCall,
 } = require("../controllers/ringcentralController");
 
+
 const { authMiddleware } = require("../middlewares/authMiddleware");
 
-// 🔐 REMOVE THIS LINE - DON'T APPLY AUTH GLOBALLY
-// router.use(authMiddleware);
+// 🔐 Apply authentication middleware (ALL routes below are protected)
+router.use(authMiddleware);
 
 /*
 --------------------------------------
  📥 INBOUND CALL SUMMARY (Role Based)
 --------------------------------------
 */
-router.get("/inbound-summary", authMiddleware, async (req, res) => {
+router.get("/inbound-summary", async (req, res) => {
   try {
     const { role } = req.user;
 
@@ -45,7 +46,7 @@ router.get("/inbound-summary", authMiddleware, async (req, res) => {
  📤 OUTBOUND CALL SUMMARY (Role Based)
 --------------------------------------
 */
-router.get("/outbound-summary", authMiddleware, async (req, res) => {
+router.get("/outbound-summary", async (req, res) => {
   try {
     const { role } = req.user;
 
@@ -71,18 +72,18 @@ router.get("/outbound-summary", authMiddleware, async (req, res) => {
 */
 
 // ✅ Answer incoming call
-router.post("/call/answer", authMiddleware, answerCall);
+router.post("/call/answer", answerCall);
 
 // ❌ Hangup / End call
-router.post("/call/hangup", authMiddleware, hangupCall);
+router.post("/call/hangup", hangupCall);
 
 // 🔇 Mute / Unmute
-router.post("/call/mute", authMiddleware, muteCall);
+router.post("/call/mute", muteCall);
 
 // ⏸ Hold / Resume
-router.post("/call/hold", authMiddleware, holdCall);
+router.post("/call/hold", holdCall);
 
 // ⏺ Start / Stop Recording
-router.post("/call/record", authMiddleware, recordCall);
+router.post("/call/record", recordCall);
 
 module.exports = router;

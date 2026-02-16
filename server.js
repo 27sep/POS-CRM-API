@@ -29,12 +29,12 @@ async function startServer() {
         console.log('✅ RingCentral connected successfully');
 
         // START RECORDING CRON HERE
-        const { fetchPendingRecordings } = require('./controllers/ringcentralController');
+        // const { fetchPendingRecordings } = require('./controllers/ringcentralController');
 
-        setInterval(async () => {
-          console.log("🎙 Checking pending recordings...");
-          await fetchPendingRecordings();
-        }, 70000);
+        // setInterval(async () => {
+        //   console.log("🎙 Checking pending recordings...");
+        //   await fetchPendingRecordings();
+        // }, 70000);
 
         // Start cron jobs after RingCentral is ready
         try {

@@ -60,8 +60,9 @@ async function loginRingCentral() {
     isLoggedIn = true;
 
     // Get token data
+    const tokenInfo = await platform.auth().data();
+    console.log('🔑 Auth Data:', tokenInfo);
     const authData = platform.auth().data();
-
     console.log('🔍 RAW AUTH DATA:', JSON.stringify(authData, null, 2));
     console.log('🔍 accessTokenValid() result:', await platform.auth().accessTokenValid());
     console.log('🔍 Actual token exists:', !!authData.access_token);
@@ -132,7 +133,7 @@ async function loginRingCentral() {
       console.error('   1. Go to RingCentral Console → Profile → Credentials');
       console.error('   2. Delete ALL existing JWTs');
       console.error('   3. Click "Create JWT"');
-      console.error('   4. Label: "Clydios-Prod-' + new Date().toISOString().slice(0,10) + '"');
+      console.error('   4. Label: "Clydios-Prod-' + new Date().toISOString().slice(0, 10) + '"');
       console.error('   5. Select: "Only specific apps of my choice"');
       console.error('   6. Client ID: 8RVRSwZ7ARhcb1NRL1GoDh');
       console.error('   7. Click Create and COPY THE NEW TOKEN IMMEDIATELY');
@@ -203,10 +204,10 @@ async function checkRingCentralHealth() {
     if (!platform) {
       return { status: '❌ Not initialized', error: 'Platform not initialized' };
     }
-    
+
     const tokenValid = await platform.auth().accessTokenValid();
     const authData = platform.auth().data();
-    
+
     return {
       status: tokenValid && authData.access_token ? '✅ Healthy' : '⚠️ Degraded',
       accessTokenPresent: !!authData.access_token,

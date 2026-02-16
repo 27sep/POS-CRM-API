@@ -224,138 +224,91 @@ async function fetchRecording(callId, retry = 0) {
   try {
     const platform = getPlatform();
 
-    /* ==============================
-       STEP 1 → Get Call Log
-    ============================== */
+    // STEP 1: Get call log
     const callLogRes = await platform.get(
       `/restapi/v1.0/account/~/extension/~/call-log/${callId}`
     );
 
     const callLog = await callLogRes.json();
 
-    console.log("📄 CallLog Recording:", callLog?.recording);
-
-    // Recording not ready yet
     if (!callLog?.recording?.id) {
-      console.log(`❌ Recording not ready: ${callId}`);
+      console.log("❌ Recording not ready:", callId);
       return null;
     }
 
-    const recordingId = callLog.recording.id;
-
-    /* ==============================
-       STEP 2 → Get Recording Details
-    ============================== */
+    // STEP 2: Get recording details
     const recRes = await platform.get(
-      `/restapi/v1.0/account/~/recording/${recordingId}`
+      `/restapi/v1.0/account/~/recording/${callLog.recording.id}`
     );
-
-    console.log("📡 Recording API Status:", recRes.status);
 
     const recording = await recRes.json();
 
-    console.log("✅ Recording Response:");
-    console.dir(recording, { depth: null });
+    console.log("✅ Recording Found:", recording.id);
 
-    return {
-      recordingId: recording.id,
-      recordingUrl:
-        recording.contentUri ||
-        recording.media?.contentUri ||
-        null,
-    };
+    return recording;
 
   } catch (error) {
-    const status = error?.response?.status;
-
-    /* ==============================
-       RATE LIMIT HANDLING
-    ============================== */
-    if (status === 429 && retry < 3) {
-      console.log("⏳ Rate limit hit, retry after 60 sec...");
+    // ⭐ Rate limit handling
+    if (error.response?.status === 429 && retry < 3) {
+      console.log("⏳ Rate limit, retry after 60s...");
       await delay(60000);
       return fetchRecording(callId, retry + 1);
     }
 
-    /* ==============================
-       RECORDING NOT READY (404)
-    ============================== */
-    if (status === 404) {
-      console.log(`⚠ Recording not found yet: ${callId}`);
-      return null;
-    }
-
-    console.error("❌ Recording Error:", error.message);
+    console.error("Recording Error:", error.message);
     return null;
   }
 }
+
 
 /* ====================================================
  🎙 FETCH PENDING RECORDINGS
 ==================================================== */
 async function fetchPendingRecordings() {
-  try {
-    const calls = await CallLog.find({
-      status: "ended",
-      $or: [
-        { recordingId: null },
-        { insightsStatus: "pending" },
-      ],
-    })
-      .sort({ createdAt: -1 })
-      .limit(5);
+  const calls = await CallLog.find({
+    recordingId: null,
+    status: "ended",
+  })
+    .sort({ createdAt: -1 })
+    .limit(5);
 
-    if (!calls.length) {
-      console.log("✅ No pending recordings");
-      return;
-    }
+  for (const call of calls) {
+    try {
+      console.log("📞 Checking call:", call.callId);
 
-    for (const call of calls) {
-      try {
-        console.log("📞 Checking call:", call.callId);
+      const recording = await fetchRecording(call.callId);
 
-        // ⭐ STEP 1 → Fetch recording if missing
-        let recordingId = call.recordingId;
-
-        if (!recordingId) {
-          const recording = await fetchRecording(call.callId);
-
-          if (!recording) {
-            console.log("❌ Recording not ready:", call.callId);
-            continue;
-          }
-
-          recordingId = recording.id;
-
-          await CallLog.updateOne(
-            { callId: call.callId },
-            {
-              $set: {
-                recordingId,
-                recordingUrl: recording.contentUri || "",
-                insightsStatus: "pending",
-              },
-            }
-          );
-
-          console.log("✅ Recording saved:", recordingId);
-        }
-
-        // ⭐ STEP 2 → Fetch insights/transcript
-        await updateInsights({
-          callId: call.callId,
-          recordingId,
-        });
-
-        // ⭐ Avoid RingCentral rate limit
-        await delay(15000);
-
-      } catch (err) {
-        console.error("⚠️ Call Processing Error:", err.message);
+      if (!recording) {
+        console.log("❌ Recording not ready yet:", call.callId);
+        continue;
       }
+
+      // Save recording
+      await CallLog.updateOne(
+        { callId: call.callId },
+        {
+          $set: {
+            recordingId: recording.id,
+            recordingUrl: recording.contentUri,
+            insightsStatus: "pending",
+          },
+        }
+      );
+
+      console.log("✅ Recording saved:", recording.id);
+
+      // ⭐ FETCH AI INSIGHTS AFTER RECORDING SAVE
+      await updateInsights({
+        callId: call.callId,
+        recordingId: recording.id,
+      });
+
+      // ⭐ Avoid RingCentral rate limit
+      await delay(15000);
+
+    } catch (err) {
+      console.error("Pending Recording Error:", err.message);
     }
-  } catch (err) {
-    console.error("❌ fetchPendingRecordings Error:", err.message);
   }
 }
 

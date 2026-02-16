@@ -1,0 +1,10 @@
+cd /var/www/clydios/POS-CRM-API
+pm2 stop pos-crm-api
+pm2 start server.js --name pos-crm-api
+pm2 save
+pm2 status
+pm2 logs pos-crm-api --lines 20
+ssh chetan@134.199.195.144
+cd /var/www/clydios/POS-CRM-API
+nano routes/ringcentralWebhookRoutes.js
+pm2 restart pos-crm-api
