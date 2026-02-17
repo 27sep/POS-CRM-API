@@ -1,7 +1,7 @@
 // routes/ringcentralWebhookRoutes.js
 const express = require("express");
 const router = express.Router();
-const { handleCallEvent } = require("../controllers/ringcentralWebhookController");
+const { handleCallEvent, testWebhook, simulateCall } = require("../controllers/ringcentralWebhookController");
 const { getPlatform } = require("../config/ringcentral");
 const { getIO } = require("../utils/socket");
 
@@ -12,13 +12,20 @@ const { getIO } = require("../utils/socket");
 // 📞 RingCentral Webhook - Receive live call events
 router.post("/webhook", handleCallEvent);
 
+// Test endpoint to verify webhook is working (GET)
+router.get('/test', testWebhook);
+
+// Simulation endpoint for testing without RingCentral (POST)
+router.post('/simulate', simulateCall);
+
+
 // ✅ Verify RingCentral subscription status
 router.get("/verify-subscription", async (req, res) => {
   try {
     const platform = getPlatform();
     console.log("platform", platform);
     console.log("🔍 Verifying RingCentral subscription and authentication...");
-console.log("platform.auth()", platform.auth().data());
+    console.log("platform.auth()", platform.auth().data());
     // Check if platform is authenticated
     // if (!platform.auth().data().access_token) 
     //   {
@@ -28,7 +35,7 @@ console.log("platform.auth()", platform.auth().data());
     //     hint: "Check your JWT token in .env"
     //   });
     // }
-    
+
     const resp = await platform.get('/restapi/v1.0/subscription');
     const subscriptions = await resp.json();
     console.log("subscriptions", subscriptions);
@@ -39,7 +46,7 @@ console.log("platform.auth()", platform.auth().data());
       tokenExpiry: new Date(platform.auth().data().expire_time).toLocaleString(),
       activeSubscriptions: subscriptions.records || []
     });
-    
+
   } catch (error) {
     console.error("❌ Verify subscription error:", error.message);
     res.status(500).json({
@@ -52,10 +59,10 @@ console.log("platform.auth()", platform.auth().data());
 
 // 🧪 Debug - Check webhook setup
 router.get("/webhook-debug", (req, res) => {
-  const webhookUrl = process.env.WEBHOOK_PUBLIC_URL 
+  const webhookUrl = process.env.WEBHOOK_PUBLIC_URL
     ? `${process.env.WEBHOOK_PUBLIC_URL}/api/ringcentral/webhook`
     : "❌ Not configured - run: https://www.clydios.com";
-  
+
   res.json({
     success: true,
     message: "Webhook endpoint is ready",
@@ -78,7 +85,7 @@ router.get("/webhook-debug", (req, res) => {
 router.post("/create-subscription", async (req, res) => {
   try {
     const platform = getPlatform();
-    
+
     if (!process.env.WEBHOOK_PUBLIC_URL) {
       return res.status(400).json({
         success: false,
@@ -98,10 +105,10 @@ router.post("/create-subscription", async (req, res) => {
         solution: "1. Look at your ngrok terminal\n2. Find the https://xxxx.ngrok.io URL\n3. Copy that URL\n4. Update your .env file\n5. Restart your server"
       });
     }
-    
+
     const webhookUrl = `${process.env.WEBHOOK_PUBLIC_URL}/api/ringcentral/webhook`;
     console.log('📡 Creating webhook subscription for:', webhookUrl);
-    
+
     // First, test if the webhook endpoint is reachable
     try {
       const testController = require("../controllers/ringcentralWebhookController");
@@ -120,7 +127,7 @@ router.post("/create-subscription", async (req, res) => {
         console.log(`🗑️ Found ${subs.records.length} existing subscription(s)`);
         for (const sub of subs.records) {
           await platform.delete(`/restapi/v1.0/subscription/${sub.id}`);
-          console.log(`   ✅ Deleted subscription: ${sub.id}`);
+          console.log(`Deleted subscription: ${sub.id}`);
         }
       } else {
         console.log('📭 No existing subscriptions found');
@@ -128,28 +135,28 @@ router.post("/create-subscription", async (req, res) => {
     } catch (e) {
       console.log('📭 No existing subscriptions to delete');
     }
-    
+
     // Create new subscription
     const subscription = {
       eventFilters: [
-        '/restapi/v1.0/account/~/extension/~/telephony/sessions?direction=Inbound'
+        '/restapi/v1.0/account/~/extension/~/telephony/sessions'
       ],
       deliveryMode: {
         transportType: 'WebHook',
         address: webhookUrl
       },
-      expiresIn: 315360000 // 10 years
+      expiresIn: 315360000 
     };
-    
+
     console.log('📦 Submitting subscription request to RingCentral...');
     const resp = await platform.post('/restapi/v1.0/subscription', subscription);
     const data = await resp.json();
-    
+
     console.log('✅ Subscription created successfully!');
     console.log(`   📋 ID: ${data.id}`);
     console.log(`   📡 URL: ${data.deliveryMode.address}`);
     console.log(`   ⏰ Expires: ${new Date(data.expirationTime).toLocaleString()}`);
-    
+
     res.json({
       success: true,
       message: "✅ Webhook subscription created successfully!",
@@ -165,7 +172,7 @@ router.post("/create-subscription", async (req, res) => {
     });
   } catch (error) {
     console.error("❌ Create subscription error:", error.message);
-    
+
     // Check for specific error types
     if (error.message.includes('404')) {
       res.status(500).json({
@@ -211,7 +218,7 @@ router.post("/webhook-test", async (req, res) => {
   try {
     const io = getIO();
     const { from, name, to } = req.body;
-    
+
     const testCall = {
       callId: `TEST_${Date.now()}`,
       from: from || "+12524081137",
@@ -220,12 +227,12 @@ router.post("/webhook-test", async (req, res) => {
       status: "ringing",
       timestamp: new Date().toISOString()
     };
-    
+
     console.log("🧪 Emitting test incoming call:", testCall);
     console.log("📊 Active socket clients:", io.engine?.clientsCount || 0);
-    
+
     io.emit("incoming-call", testCall);
-    
+
     res.json({
       success: true,
       message: "Test call emitted",
@@ -235,8 +242,8 @@ router.post("/webhook-test", async (req, res) => {
     });
   } catch (error) {
     console.error("❌ Test webhook error:", error.message);
-    res.status(500).json({ 
-      success: false, 
+    res.status(500).json({
+      success: false,
       error: error.message,
       hint: "Check that Socket.IO is initialized"
     });
@@ -248,7 +255,7 @@ router.get("/webhook-test", async (req, res) => {
   try {
     const io = getIO();
     const { from, name, to } = req.query;
-    
+
     const testCall = {
       callId: `TEST_${Date.now()}`,
       from: from || "+12524081137",
@@ -257,12 +264,12 @@ router.get("/webhook-test", async (req, res) => {
       status: "ringing",
       timestamp: new Date().toISOString()
     };
-    
+
     console.log("🧪 Emitting test incoming call (GET):", testCall);
     console.log("📊 Active socket clients:", io.engine?.clientsCount || 0);
-    
+
     io.emit("incoming-call", testCall);
-    
+
     res.json({
       success: true,
       message: "Test call emitted",
@@ -272,9 +279,9 @@ router.get("/webhook-test", async (req, res) => {
     });
   } catch (error) {
     console.error("❌ Test webhook error:", error.message);
-    res.status(500).json({ 
-      success: false, 
-      error: error.message 
+    res.status(500).json({
+      success: false,
+      error: error.message
     });
   }
 });
@@ -284,7 +291,7 @@ router.get("/webhook-health", (req, res) => {
   res.json({
     success: true,
     status: "healthy",
-    webhookUrl: process.env.WEBHOOK_PUBLIC_URL 
+    webhookUrl: process.env.WEBHOOK_PUBLIC_URL
       ? `${process.env.WEBHOOK_PUBLIC_URL}/api/ringcentral/webhook`
       : "Not configured",
     ngrokRunning: !!process.env.WEBHOOK_PUBLIC_URL,
