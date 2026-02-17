@@ -16,25 +16,30 @@ router.post("/webhook", handleCallEvent);
 router.get("/verify-subscription", async (req, res) => {
   try {
     const platform = getPlatform();
-    
+    console.log("platform", platform);
+    console.log("🔍 Verifying RingCentral subscription and authentication...");
+console.log("platform.auth()", platform.auth().data());
     // Check if platform is authenticated
-    if (!platform.auth().data().access_token) {
-      return res.status(401).json({
-        success: false,
-        message: "RingCentral not authenticated",
-        hint: "Check your JWT token in .env"
-      });
-    }
+    // if (!platform.auth().data().access_token) 
+    //   {
+    //   return res.status(401).json({
+    //     success: false,
+    //     message: "RingCentral not authenticated",
+    //     hint: "Check your JWT token in .env"
+    //   });
+    // }
     
     const resp = await platform.get('/restapi/v1.0/subscription');
     const subscriptions = await resp.json();
-    
+    console.log("subscriptions", subscriptions);
+    console.log("response", resp);
     res.json({
       success: true,
       message: "RingCentral authenticated successfully",
       tokenExpiry: new Date(platform.auth().data().expire_time).toLocaleString(),
       activeSubscriptions: subscriptions.records || []
     });
+    
   } catch (error) {
     console.error("❌ Verify subscription error:", error.message);
     res.status(500).json({
@@ -49,7 +54,7 @@ router.get("/verify-subscription", async (req, res) => {
 router.get("/webhook-debug", (req, res) => {
   const webhookUrl = process.env.WEBHOOK_PUBLIC_URL 
     ? `${process.env.WEBHOOK_PUBLIC_URL}/api/ringcentral/webhook`
-    : "❌ Not configured - run: ngrok http 5000";
+    : "❌ Not configured - run: https://www.clydios.com";
   
   res.json({
     success: true,
@@ -60,10 +65,10 @@ router.get("/webhook-debug", (req, res) => {
     timestamp: new Date().toISOString(),
     instructions: {
       step1: "ngrok http 5000",
-      step2: "Copy the https://xxxx.ngrok.io URL",
-      step3: "Add to .env: WEBHOOK_PUBLIC_URL=https://xxxx.ngrok.io",
+      step2: "Copy the https://www.clydios.com URL",
+      step3: "Add to .env: WEBHOOK_PUBLIC_URL=https://www.clydios.com",
       step4: "Restart server: npm run dev",
-      step5: "Run: curl -X POST http://localhost:5000/api/ringcentral/create-subscription",
+      step5: "Run: curl -X POST https://www.clydios.com/api/ringcentral/create-subscription",
       step6: "Update RingCentral Console with the same URL"
     }
   });

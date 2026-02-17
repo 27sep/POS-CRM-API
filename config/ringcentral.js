@@ -60,10 +60,8 @@ async function loginRingCentral() {
     isLoggedIn = true;
 
     // Get token data
-    const tokenInfo = await platform.auth().data();
-    console.log('🔑 Auth Data:', tokenInfo);
-    const authData = platform.auth().data();
-    console.log('🔍 RAW AUTH DATA:', JSON.stringify(authData, null, 2));
+    const authData = await platform.auth().data();
+    console.log('🔍 RAW AUTH DATA:', authData);
     console.log('🔍 accessTokenValid() result:', await platform.auth().accessTokenValid());
     console.log('🔍 Actual token exists:', !!authData.access_token);
     console.log('🔑 Auth Data Retrieved:', !!authData);
@@ -182,22 +180,49 @@ async function isRingCentralLoggedIn() {
   }
 }
 
+// async function refreshTokenIfNeeded() {
+//   try {
+//     if (platform && !(await platform.auth().accessTokenValid())) {
+//       console.log('🔄 Refreshing RingCentral token...');
+//       await platform.refresh();
+//       console.log('✅ Token refreshed successfully');
+//       return true;
+//     }
+//     return true;
+//   } catch (error) {
+//     console.error('❌ Token refresh failed:', error.message);
+//     isLoggedIn = false;
+//     return false;
+//   }
+// }
 async function refreshTokenIfNeeded() {
   try {
-    if (platform && !(await platform.auth().accessTokenValid())) {
-      console.log('🔄 Refreshing RingCentral token...');
-      await platform.refresh();
-      console.log('✅ Token refreshed successfully');
+    if (!platform) {
+      console.log('⚠️ Platform not initialized, attempting login...');
+      await loginRingCentral();
       return true;
     }
+
+    const tokenValid = await platform.auth().accessTokenValid();
+    
+    if (!tokenValid) {
+      console.log('🔄 Access token expired, re-authenticating with JWT...');
+      // For JWT: re-login instead of refresh
+      await platform.login({
+        jwt: process.env.RINGCENTRAL_JWT.trim()
+      });
+      console.log('✅ Re-authenticated successfully with JWT');
+      return true;
+    }
+    
+    console.log('✅ Access token still valid');
     return true;
   } catch (error) {
-    console.error('❌ Token refresh failed:', error.message);
+    console.error('❌ Re-authentication failed:', error.message);
     isLoggedIn = false;
     return false;
   }
 }
-
 // Health check function
 async function checkRingCentralHealth() {
   try {

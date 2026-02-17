@@ -8,3 +8,4 @@ ssh chetan@134.199.195.144
 cd /var/www/clydios/POS-CRM-API
 nano routes/ringcentralWebhookRoutes.js
 pm2 restart pos-crm-api
+nano config/ringcentral.js
