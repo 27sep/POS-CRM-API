@@ -26,15 +26,15 @@ router.get("/verify-subscription", async (req, res) => {
     console.log("platform", platform);
     console.log("🔍 Verifying RingCentral subscription and authentication...");
     console.log("platform.auth()", platform.auth().data());
-    // Check if platform is authenticated
-    // if (!platform.auth().data().access_token) 
-    //   {
-    //   return res.status(401).json({
-    //     success: false,
-    //     message: "RingCentral not authenticated",
-    //     hint: "Check your JWT token in .env"
-    //   });
-    // }
+
+    if (!platform.auth().data().access_token) 
+      {
+      return res.status(401).json({
+        success: false,
+        message: "RingCentral not authenticated",
+        hint: "Check your JWT token in .env"
+      });
+    }
 
     const resp = await platform.get('/restapi/v1.0/subscription');
     const subscriptions = await resp.json();
@@ -145,7 +145,6 @@ router.post("/create-subscription", async (req, res) => {
         transportType: 'WebHook',
         address: webhookUrl
       },
-      expiresIn: 315360000 
     };
 
     console.log('📦 Submitting subscription request to RingCentral...');
