@@ -52,8 +52,7 @@ const CallLogSchema = new mongoose.Schema(
 
     startTime: {
       type: Date,
-      required: true,
-      index: true,
+      default: Date.now,
     },
 
     endTime: {
