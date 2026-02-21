@@ -47,6 +47,7 @@ const ringcentralRoutes = require('./routes/ringcentralRoutes');
 const ringCentralSMSRoutes = require('./routes/ringCentralSMSRoutes');
 const userRoutes = require('./routes/userRoutes');
 const ringcentralWebhookRoutes = require("./routes/ringcentralWebhookRoutes");
+const callRoutes = require('./routes/callRoutes');
 
 // Register routes
 app.use('/api/auth', authRoutes);
@@ -77,6 +78,7 @@ app.use('/api/ringcentral', ringcentralRoutes);
 
 // 3️⃣ SMS APIs
 app.use('/api/ringcentral/sms', ringCentralSMSRoutes);
+app.use('/api/calls', callRoutes);
 
 // Health check route (REQUIRED for Render)
 app.get('/health', (req, res) => {

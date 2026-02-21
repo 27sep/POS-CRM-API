@@ -183,6 +183,9 @@ async function saveCallsToDB(calls, direction) {
     const ops = calls.map((call) => {
       const start = call.startTime ? new Date(call.startTime) : null;
 
+      const status =
+        call.result === "In Progress" ? "active" : "ended";
+
       return {
         updateOne: {
           filter: { callId: call.id },
@@ -190,8 +193,10 @@ async function saveCallsToDB(calls, direction) {
             $set: {
               callId: call.id,
               direction,
-              fromNumber: call.fromNumber === "Unknown" ? null : call.fromNumber,
-              toNumber: call.toNumber === "Unknown" ? null : call.toNumber,
+              fromNumber:
+                call.fromNumber === "Unknown" ? null : call.fromNumber,
+              toNumber:
+                call.toNumber === "Unknown" ? null : call.toNumber,
               startTime: start,
               endTime:
                 start && call.duration
@@ -199,7 +204,7 @@ async function saveCallsToDB(calls, direction) {
                   : null,
               duration: call.duration || 0,
               result: call.result,
-              status: "ended",
+              status,
               rawPayload: call,
             },
           },
@@ -214,8 +219,6 @@ async function saveCallsToDB(calls, direction) {
     console.error("DB Save Error:", error.message);
   }
 }
-
-
 
 /* ====================================================
  🎙 FETCH RECORDING
@@ -268,6 +271,7 @@ async function fetchPendingRecordings() {
   const calls = await CallLog.find({
     recordingId: null,
     status: "ended",
+    recordingFetchAttempts: { $lt: 5 },
   })
     .sort({ createdAt: -1 })
     .limit(5);
@@ -279,11 +283,13 @@ async function fetchPendingRecordings() {
       const recording = await fetchRecording(call.callId);
 
       if (!recording) {
-        console.log("❌ Recording not ready yet:", call.callId);
+        await CallLog.updateOne(
+          { callId: call.callId },
+          { $inc: { recordingFetchAttempts: 1 } }
+        );
         continue;
       }
 
-      // Save recording
       await CallLog.updateOne(
         { callId: call.callId },
         {
@@ -295,15 +301,11 @@ async function fetchPendingRecordings() {
         }
       );
 
-      console.log("✅ Recording saved:", recording.id);
-
-      // ⭐ FETCH AI INSIGHTS AFTER RECORDING SAVE
       await updateInsights({
         callId: call.callId,
         recordingId: recording.id,
       });
 
-      // ⭐ Avoid RingCentral rate limit
       await delay(15000);
 
     } catch (err) {
@@ -357,20 +359,22 @@ async function updateInsights(call) {
 
     const existing = await CallLog.findOne({ callId: call.callId });
 
-    if (!existing || existing.insightsStatus === "completed")
+    if (
+      !existing ||
+      existing.insightsStatus === "completed" ||
+      existing.insightsFetchAttempts >= 5
+    )
       return;
-
-    console.log("🎙 Fetching insights for:", call.recordingId);
 
     const insights = await fetchRingSenseInsights(call.recordingId);
 
     if (!insights?.insights) {
-      console.log("❌ No insights yet:", call.recordingId);
+      await CallLog.updateOne(
+        { callId: call.callId },
+        { $inc: { insightsFetchAttempts: 1 } }
+      );
       return;
     }
-
-    console.log("📝 Transcript:", insights.insights.Transcript);
-    console.log("📊 Score:", insights.insights.AIScore);
 
     await CallLog.updateOne(
       { callId: call.callId },
@@ -395,96 +399,232 @@ async function updateInsights(call) {
 }
 
 
+
 /* ====================================================
  📞 CALL CONTROLS
 ==================================================== */
 
-// ANSWER
+// Answer call API (RingCentral)
 exports.answerCall = async (req, res) => {
   try {
-    const { callId } = req.body;
-    const { platform, partyId } = await getActiveParty(callId);
+    const { callId, partyId } = req.body;
 
+    // Validate input
+    if (!callId || !partyId) {
+      return res.status(400).json({
+        success: false,
+        message: "callId and partyId required"
+      });
+    }
+
+    // Ensure SDK logged in
+    const platform = rcsdk.platform();
+    if (!platform.loggedIn()) {
+      return res.status(401).json({
+        success: false,
+        message: "RingCentral not logged in"
+      });
+    }
+
+    // Answer call
     await platform.post(
       `/restapi/v1.0/account/~/telephony/sessions/${callId}/parties/${partyId}/answer`
     );
 
-    res.json({ success: true, message: "Call answered" });
-  } catch (err) {
-    console.error("Answer error:", err.message);
-    res.status(500).json({ success: false, error: err.message });
+    res.json({
+      success: true,
+      message: "Call answered successfully"
+    });
+
+  } catch (error) {
+    console.error("Answer call error:", error.response?.data || error.message);
+
+    res.status(500).json({
+      success: false,
+      error: error.response?.data || error.message
+    });
   }
 };
+
+
 
 // HANGUP
 exports.hangupCall = async (req, res) => {
   try {
     const { callId } = req.body;
+
+    if (!callId) {
+      return res.status(400).json({
+        success: false,
+        message: "callId required"
+      });
+    }
+
+    // Get active party info
     const { platform, partyId } = await getActiveParty(callId);
 
+    if (!platform.loggedIn()) {
+      return res.status(401).json({
+        success: false,
+        message: "RingCentral not logged in"
+      });
+    }
+
+    // Hangup call
     await platform.delete(
       `/restapi/v1.0/account/~/telephony/sessions/${callId}/parties/${partyId}`
     );
 
-    res.json({ success: true, message: "Call ended" });
+    res.json({
+      success: true,
+      message: "Call ended successfully"
+    });
+
   } catch (err) {
-    console.error("Hangup error:", err.message);
-    res.status(500).json({ success: false, error: err.message });
+    console.error(
+      "Hangup error:",
+      err.response?.data || err.message
+    );
+
+    res.status(500).json({
+      success: false,
+      error: err.response?.data || err.message
+    });
   }
 };
 
-// MUTE / UNMUTE
+// MUTE / UNMUTE CALL
 exports.muteCall = async (req, res) => {
   try {
     const { callId, muted } = req.body;
+
+    // Validation
+    if (!callId || typeof muted !== "boolean") {
+      return res.status(400).json({
+        success: false,
+        message: "callId and muted (true/false) required"
+      });
+    }
+
+    // Get active call party
     const { platform, partyId } = await getActiveParty(callId);
 
+    if (!platform.loggedIn()) {
+      return res.status(401).json({
+        success: false,
+        message: "RingCentral not logged in"
+      });
+    }
+
+    // Patch call party
     await platform.patch(
       `/restapi/v1.0/account/~/telephony/sessions/${callId}/parties/${partyId}`,
       { muted }
     );
 
-    res.json({ success: true, muted });
+    res.json({
+      success: true,
+      muted,
+      message: muted ? "Call muted" : "Call unmuted"
+    });
+
   } catch (err) {
-    console.error("Mute error:", err.message);
-    res.status(500).json({ success: false, error: err.message });
+    console.error("Mute error:", err.response?.data || err.message);
+
+    res.status(500).json({
+      success: false,
+      error: err.response?.data || err.message
+    });
   }
 };
 
-// HOLD / RESUME
+// HOLD / RESUME CALL
 exports.holdCall = async (req, res) => {
   try {
     const { callId, hold } = req.body;
+
+    if (!callId || typeof hold !== "boolean") {
+      return res.status(400).json({
+        success: false,
+        message: "callId and hold(true/false) required"
+      });
+    }
+
     const { platform, partyId } = await getActiveParty(callId);
 
-    await platform.patch(
-      `/restapi/v1.0/account/~/telephony/sessions/${callId}/parties/${partyId}`,
-      { hold }
-    );
+    // HOLD or UNHOLD endpoint
+    const endpoint = hold
+      ? `/restapi/v1.0/account/~/telephony/sessions/${callId}/parties/${partyId}/hold`
+      : `/restapi/v1.0/account/~/telephony/sessions/${callId}/parties/${partyId}/unhold`;
 
-    res.json({ success: true, hold });
+    await platform.post(endpoint);
+
+    res.json({
+      success: true,
+      hold,
+      message: hold ? "Call placed on hold" : "Call resumed"
+    });
+
   } catch (err) {
-    console.error("Hold error:", err.message);
-    res.status(500).json({ success: false, error: err.message });
+    console.error("Hold error:", err.response?.data || err.message);
+
+    res.status(500).json({
+      success: false,
+      error: err.response?.data || err.message
+    });
   }
 };
 
-// RECORD / STOP
+
+// RECORD / STOP CALL RECORDING
 exports.recordCall = async (req, res) => {
   try {
     const { callId, recording } = req.body;
+
+    if (!callId) {
+      return res.status(400).json({
+        success: false,
+        message: "callId required"
+      });
+    }
+
     const { platform, partyId } = await getActiveParty(callId);
 
+    if (recording) {
+      // START recording
+      await platform.post(
+        `/restapi/v1.0/account/~/telephony/sessions/${callId}/parties/${partyId}/recordings`
+      );
+
+      return res.json({
+        success: true,
+        recording: true,
+        message: "Recording started"
+      });
+    }
+
+    // STOP recording → requires recordingId normally
+    // simplest way: pause recording (safe fallback)
     await platform.patch(
-      `/restapi/v1.0/account/~/telephony/sessions/${callId}/parties/${partyId}`,
-      { recording }
+      `/restapi/v1.0/account/~/telephony/sessions/${callId}/parties/${partyId}/recordings`,
+      { active: false }
     );
 
-    res.json({ success: true, recording });
+    res.json({
+      success: true,
+      recording: false,
+      message: "Recording stopped"
+    });
+
   } catch (err) {
-    console.error("Record error:", err.message);
-    res.status(500).json({ success: false, error: err.message });
+    console.error("Recording error:", err.response?.data || err.message);
+
+    res.status(500).json({
+      success: false,
+      error: err.response?.data || err.message
+    });
   }
 };
+
 exports.fetchPendingRecordings = fetchPendingRecordings;
 

@@ -9,3 +9,7 @@ cd /var/www/clydios/POS-CRM-API
 nano routes/ringcentralWebhookRoutes.js
 pm2 restart pos-crm-api
 nano config/ringcentral.js
+nano controllers/ringcentralWebhookController.js
+nano models/CallLog.js
+nano app.js
+nano controllers/ringcentralController.js

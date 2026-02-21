@@ -86,22 +86,24 @@ exports.handleCallEvent = async (req, res) => {
     // ==============================
     // 🔔 RINGING
     // ==============================
-    if (status === "Ringing" || status === "Setup") {
-      console.log(
-        `[${requestId}] 🔔 INCOMING CALL`
-      );
+    // ==============================
+    // 🔔 CALL EVENT EMIT (ALL STATUS)
+    // ==============================
+    if (status && io) {
+      const normalizedStatus = status.toLowerCase().trim();
 
-      if (io) {
-        io.emit("incoming-call", {
-          callId: sessionId,
-          from: fromNumber,
-          to: toNumber,
-          callerName,
-          status: "ringing",
-          direction,
-          timestamp: new Date().toISOString(),
-        });
-      }
+      console.log(`[${requestId}] 📞 Emitting incoming-call event:`, normalizedStatus);
+
+      io.emit("incoming-call", {
+        callId: sessionId,
+        partyId: party?.id || null, // important for answer/hangup APIs
+        from: fromNumber?.trim(),
+        callerName: callerName?.trim(),
+        to: toNumber?.trim(),
+        status: normalizedStatus,
+        direction,
+        timestamp: new Date().toISOString(),
+      });
     }
 
     // ==============================
