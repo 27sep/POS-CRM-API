@@ -8,7 +8,7 @@ router.get("/incoming", (req, res) => {
     const io = getIO();
     const callData = {
       callId: req.query.callId || `TEST_CALL_${Date.now()}`,
-      from: req.query.from || "+12524081137",
+      from: req.query.from || "+919776330933",
       callerName: req.query.name || "WIRELESS CALLER",
       to: req.query.to || "+18772004944",
       status: "ringing"

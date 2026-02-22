@@ -403,13 +403,53 @@ async function updateInsights(call) {
 /* ====================================================
  📞 CALL CONTROLS
 ==================================================== */
+/* ====================================================
+ 📞 GET ACTIVE PARTY
+==================================================== */
+
+async function getActiveParty(callId) {
+  const platform = getPlatform();
+
+  const tokenValid = await platform.auth().accessTokenValid();
+  if (!tokenValid) {
+    throw new Error("RingCentral not logged in or token expired");
+  }
+
+  // Get telephony session
+  const res = await platform.get(
+    `/restapi/v1.0/account/~/telephony/sessions/${callId}`
+  );
+
+  const session = await res.json();
+
+  if (!session?.parties?.length) {
+    throw new Error("No active parties found");
+  }
+
+  // Find active party (connected or proceeding)
+  const activeParty = session.parties.find(
+    (p) =>
+      ["Setup", "Proceeding", "Answered", "Connected", "OnHold"].includes(
+        p.status?.code
+      )
+  );
+
+
+  if (!activeParty) {
+    throw new Error("No active party found");
+  }
+
+  return {
+    platform,
+    partyId: activeParty.id,
+  };
+}
 
 // Answer call API (RingCentral)
 exports.answerCall = async (req, res) => {
   try {
     const { callId, partyId } = req.body;
 
-    // Validate input
     if (!callId || !partyId) {
       return res.status(400).json({
         success: false,
@@ -417,16 +457,18 @@ exports.answerCall = async (req, res) => {
       });
     }
 
-    // Ensure SDK logged in
-    const platform = rcsdk.platform();
-    if (!platform.loggedIn()) {
+    // ✅ Use getPlatform() (NOT rcsdk)
+    const platform = getPlatform();
+
+    // Ensure token valid
+    const tokenValid = await platform.auth().accessTokenValid();
+    if (!tokenValid) {
       return res.status(401).json({
         success: false,
-        message: "RingCentral not logged in"
+        message: "RingCentral not logged in or token expired"
       });
     }
 
-    // Answer call
     await platform.post(
       `/restapi/v1.0/account/~/telephony/sessions/${callId}/parties/${partyId}/answer`
     );
@@ -445,8 +487,6 @@ exports.answerCall = async (req, res) => {
     });
   }
 };
-
-
 
 // HANGUP
 exports.hangupCall = async (req, res) => {
