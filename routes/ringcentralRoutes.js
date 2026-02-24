@@ -4,24 +4,21 @@ const router = express.Router();
 const {
   fetchInboundSummary,
   fetchOutboundSummary,
-  answerCall,
-  hangupCall,
-  muteCall,
-  holdCall,
   recordCall,
+  getSipInfo
 } = require("../controllers/ringcentralController");
 
 const { authMiddleware } = require("../middlewares/authMiddleware");
 
-// 🔐 REMOVE THIS LINE - DON'T APPLY AUTH GLOBALLY
-// router.use(authMiddleware);
+// 🔐 Apply authentication middleware (ALL routes below are protected)
+router.use(authMiddleware);
 
 /*
 --------------------------------------
  📥 INBOUND CALL SUMMARY (Role Based)
 --------------------------------------
 */
-router.get("/inbound-summary", authMiddleware, async (req, res) => {
+router.get("/inbound-summary", async (req, res) => {
   try {
     const { role } = req.user;
 
@@ -45,7 +42,7 @@ router.get("/inbound-summary", authMiddleware, async (req, res) => {
  📤 OUTBOUND CALL SUMMARY (Role Based)
 --------------------------------------
 */
-router.get("/outbound-summary", authMiddleware, async (req, res) => {
+router.get("/outbound-summary", async (req, res) => {
   try {
     const { role } = req.user;
 
@@ -64,25 +61,13 @@ router.get("/outbound-summary", authMiddleware, async (req, res) => {
   }
 });
 
+
 /*
 --------------------------------------
- 📞 CALL CONTROL APIs (LIVE)
+ 📞 WEBRTC & RECORDING
 --------------------------------------
 */
-
-// ✅ Answer incoming call
-router.post("/call/answer", authMiddleware, answerCall);
-
-// ❌ Hangup / End call
-router.post("/call/hangup", authMiddleware, hangupCall);
-
-// 🔇 Mute / Unmute
-router.post("/call/mute", authMiddleware, muteCall);
-
-// ⏸ Hold / Resume
-router.post("/call/hold", authMiddleware, holdCall);
-
-// ⏺ Start / Stop Recording
-router.post("/call/record", authMiddleware, recordCall);
+router.get('/sip-info', authMiddleware, getSipInfo);     // WebRTC credentials
+router.post("/call/record", authMiddleware, recordCall); // Optional recording
 
 module.exports = router;

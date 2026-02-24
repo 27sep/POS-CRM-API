@@ -398,225 +398,161 @@ async function updateInsights(call) {
   }
 }
 
-
-
 /* ====================================================
- 📞 CALL CONTROLS
+ 🔥 FIXED: SIP INFO ENDPOINT (THIS IS THE ONLY ENDPOINT NEEDED FOR WEBRTC)
 ==================================================== */
-/* ====================================================
- 📞 GET ACTIVE PARTY
-==================================================== */
+// Add this at the top of your file, outside the function
+const sipInfoCache = new Map(); // Store by user ID or identifier
+const CACHE_DURATION = 20 * 60 * 60 * 1000; // 20 hours in milliseconds (RingCentral credentials expire in 24h)
 
-async function getActiveParty(callId) {
-  const platform = getPlatform();
-
-  const tokenValid = await platform.auth().accessTokenValid();
-  if (!tokenValid) {
-    throw new Error("RingCentral not logged in or token expired");
-  }
-
-  // Get telephony session
-  const res = await platform.get(
-    `/restapi/v1.0/account/~/telephony/sessions/${callId}`
-  );
-
-  const session = await res.json();
-
-  if (!session?.parties?.length) {
-    throw new Error("No active parties found");
-  }
-
-  // Find active party (connected or proceeding)
-  const activeParty = session.parties.find(
-    (p) =>
-      ["Setup", "Proceeding", "Answered", "Connected", "OnHold"].includes(
-        p.status?.code
-      )
-  );
-
-
-  if (!activeParty) {
-    throw new Error("No active party found");
-  }
-
-  return {
-    platform,
-    partyId: activeParty.id,
-  };
-}
-
-// Answer call API (RingCentral)
-exports.answerCall = async (req, res) => {
+exports.getSipInfo = async (req, res) => {
   try {
-    const { callId, partyId } = req.body;
-
-    if (!callId || !partyId) {
-      return res.status(400).json({
-        success: false,
-        message: "callId and partyId required"
+    console.log("📡 Getting SIP info for WebRTC...");
+    
+    // Get user identifier (use user ID from auth if available, otherwise use IP or session)
+    const userId = req.user?.id || req.user?._id || req.ip || 'anonymous';
+    
+    // Check cache first
+    const cached = sipInfoCache.get(userId);
+    if (cached && cached.expiresAt > Date.now()) {
+      console.log("✅ Returning CACHED SIP info for user:", userId);
+      return res.json({
+        success: true,
+        sipInfo: cached.sipInfo,
+        cached: true,
+        expiresIn: Math.round((cached.expiresAt - Date.now()) / 1000 / 60) + ' minutes'
       });
     }
 
-    // ✅ Use getPlatform() (NOT rcsdk)
     const platform = getPlatform();
 
-    // Ensure token valid
+    // Ensure we're logged in
     const tokenValid = await platform.auth().accessTokenValid();
     if (!tokenValid) {
-      return res.status(401).json({
-        success: false,
-        message: "RingCentral not logged in or token expired"
+      console.log("🔄 Token expired, re-authenticating...");
+      await platform.login({
+        jwt: process.env.RINGCENTRAL_JWT.trim()
       });
     }
 
-    await platform.post(
-      `/restapi/v1.0/account/~/telephony/sessions/${callId}/parties/${partyId}/answer`
+    // Provision WebRTC device
+    console.log("📡 Requesting NEW SIP provision from RingCentral...");
+    const response = await platform.post(
+      '/restapi/v1.0/client-info/sip-provision',
+      {
+        sipInfo: [{ 
+          transport: 'WSS',
+        }]
+      }
     );
+
+    const data = await response.json();
+    
+    console.log("✅ SIP Provision successful");
+    console.log("📱 Device ID:", data.device?.id);
+    console.log("📞 SIP Username:", data.sipInfo[0]?.username);
+
+    // Prepare SIP info object
+    const sipInfo = {
+      username: data.sipInfo[0].username,
+      password: data.sipInfo[0].password,
+      authorizationId: data.sipInfo[0].authorizationId || data.sipInfo[0].username,
+      domain: data.sipInfo[0].domain,
+      outboundProxy: data.sipInfo[0].outboundProxy,
+      transport: data.sipInfo[0].transport || 'WSS',
+      deviceId: data.device?.id
+    };
+
+    // Store in cache with expiration
+    sipInfoCache.set(userId, {
+      sipInfo,
+      expiresAt: Date.now() + CACHE_DURATION,
+      createdAt: new Date().toISOString()
+    });
+
+    // Clean up old cache entries occasionally (optional)
+    if (Math.random() < 0.1) { // 10% chance to clean up
+      cleanupCache();
+    }
 
     res.json({
       success: true,
-      message: "Call answered successfully"
+      sipInfo,
+      cached: false,
+      expiresIn: Math.round(CACHE_DURATION / 1000 / 60) + ' minutes'
     });
 
   } catch (error) {
-    console.error("Answer call error:", error.response?.data || error.message);
+    console.error("❌ SIP Provision failed:", error);
+    
+    // Handle rate limiting specially
+    if (error.response?.status === 429) {
+      const retryAfter = error.retryAfter || 60000;
+      console.log(`⏳ Rate limited by RingCentral. Retry after ${retryAfter}ms`);
+      
+      // Get user ID for cache check
+      const userId = req.user?.id || req.user?._id || req.ip || 'anonymous';
+      
+      // Check if we have ANY cached version (even expired) to use as fallback
+      const cached = sipInfoCache.get(userId);
+      if (cached) {
+        console.log("⚠️ Using EXPIRED cache as fallback due to rate limiting");
+        return res.json({
+          success: true,
+          sipInfo: cached.sipInfo,
+          cached: true,
+          expired: true,
+          message: "Using cached credentials (may expire soon)"
+        });
+      }
+      
+      return res.status(429).json({
+        success: false,
+        error: "Rate limited by RingCentral",
+        message: "Too many requests. Please wait a minute and try again.",
+        retryAfter: retryAfter / 1000 + ' seconds'
+      });
+    }
+    
+    let errorData = error.message;
+    if (error.response) {
+      try {
+        errorData = await error.response.json();
+      } catch (e) {
+        errorData = error.response.statusText;
+      }
+    }
 
     res.status(500).json({
       success: false,
-      error: error.response?.data || error.message
+      error: errorData
     });
   }
 };
 
-// HANGUP
-exports.hangupCall = async (req, res) => {
-  try {
-    const { callId } = req.body;
-
-    if (!callId) {
-      return res.status(400).json({
-        success: false,
-        message: "callId required"
-      });
+// Helper function to clean up expired cache entries
+function cleanupCache() {
+  console.log("🧹 Cleaning up expired SIP cache entries...");
+  const now = Date.now();
+  let expiredCount = 0;
+  
+  for (const [key, value] of sipInfoCache.entries()) {
+    if (value.expiresAt < now) {
+      sipInfoCache.delete(key);
+      expiredCount++;
     }
-
-    // Get active party info
-    const { platform, partyId } = await getActiveParty(callId);
-
-    if (!platform.loggedIn()) {
-      return res.status(401).json({
-        success: false,
-        message: "RingCentral not logged in"
-      });
-    }
-
-    // Hangup call
-    await platform.delete(
-      `/restapi/v1.0/account/~/telephony/sessions/${callId}/parties/${partyId}`
-    );
-
-    res.json({
-      success: true,
-      message: "Call ended successfully"
-    });
-
-  } catch (err) {
-    console.error(
-      "Hangup error:",
-      err.response?.data || err.message
-    );
-
-    res.status(500).json({
-      success: false,
-      error: err.response?.data || err.message
-    });
   }
-};
+  
+  console.log(`✅ Removed ${expiredCount} expired cache entries`);
+  console.log(`📊 Current cache size: ${sipInfoCache.size} entries`);
+}
 
-// MUTE / UNMUTE CALL
-exports.muteCall = async (req, res) => {
-  try {
-    const { callId, muted } = req.body;
+/* ====================================================
+ 🗑️ REMOVED: All call control endpoints (answer, hangup, mute, hold)
+ These are handled by WebRTC directly in the browser
+==================================================== */
 
-    // Validation
-    if (!callId || typeof muted !== "boolean") {
-      return res.status(400).json({
-        success: false,
-        message: "callId and muted (true/false) required"
-      });
-    }
-
-    // Get active call party
-    const { platform, partyId } = await getActiveParty(callId);
-
-    if (!platform.loggedIn()) {
-      return res.status(401).json({
-        success: false,
-        message: "RingCentral not logged in"
-      });
-    }
-
-    // Patch call party
-    await platform.patch(
-      `/restapi/v1.0/account/~/telephony/sessions/${callId}/parties/${partyId}`,
-      { muted }
-    );
-
-    res.json({
-      success: true,
-      muted,
-      message: muted ? "Call muted" : "Call unmuted"
-    });
-
-  } catch (err) {
-    console.error("Mute error:", err.response?.data || err.message);
-
-    res.status(500).json({
-      success: false,
-      error: err.response?.data || err.message
-    });
-  }
-};
-
-// HOLD / RESUME CALL
-exports.holdCall = async (req, res) => {
-  try {
-    const { callId, hold } = req.body;
-
-    if (!callId || typeof hold !== "boolean") {
-      return res.status(400).json({
-        success: false,
-        message: "callId and hold(true/false) required"
-      });
-    }
-
-    const { platform, partyId } = await getActiveParty(callId);
-
-    // HOLD or UNHOLD endpoint
-    const endpoint = hold
-      ? `/restapi/v1.0/account/~/telephony/sessions/${callId}/parties/${partyId}/hold`
-      : `/restapi/v1.0/account/~/telephony/sessions/${callId}/parties/${partyId}/unhold`;
-
-    await platform.post(endpoint);
-
-    res.json({
-      success: true,
-      hold,
-      message: hold ? "Call placed on hold" : "Call resumed"
-    });
-
-  } catch (err) {
-    console.error("Hold error:", err.response?.data || err.message);
-
-    res.status(500).json({
-      success: false,
-      error: err.response?.data || err.message
-    });
-  }
-};
-
-
-// RECORD / STOP CALL RECORDING
+// ✅ KEEP ONLY: Recording endpoint (optional - can be handled by WebRTC too)
 exports.recordCall = async (req, res) => {
   try {
     const { callId, recording } = req.body;
@@ -643,8 +579,7 @@ exports.recordCall = async (req, res) => {
       });
     }
 
-    // STOP recording → requires recordingId normally
-    // simplest way: pause recording (safe fallback)
+    // STOP recording
     await platform.patch(
       `/restapi/v1.0/account/~/telephony/sessions/${callId}/parties/${partyId}/recordings`,
       { active: false }
@@ -658,7 +593,6 @@ exports.recordCall = async (req, res) => {
 
   } catch (err) {
     console.error("Recording error:", err.response?.data || err.message);
-
     res.status(500).json({
       success: false,
       error: err.response?.data || err.message
@@ -666,5 +600,40 @@ exports.recordCall = async (req, res) => {
   }
 };
 
-exports.fetchPendingRecordings = fetchPendingRecordings;
+// Helper function for getting active party (kept for recording)
+async function getActiveParty(callId) {
+  const platform = getPlatform();
 
+  const tokenValid = await platform.auth().accessTokenValid();
+  if (!tokenValid) {
+    throw new Error("RingCentral not logged in or token expired");
+  }
+
+  const res = await platform.get(
+    `/restapi/v1.0/account/~/telephony/sessions/${callId}`
+  );
+
+  const session = await res.json();
+
+  if (!session?.parties?.length) {
+    throw new Error("No active parties found");
+  }
+
+  const activeParty = session.parties.find(
+    (p) =>
+      ["Setup", "Proceeding", "Answered", "Connected", "OnHold"].includes(
+        p.status?.code
+      )
+  );
+
+  if (!activeParty) {
+    throw new Error("No active party found");
+  }
+
+  return {
+    platform,
+    partyId: activeParty.id,
+  };
+}
+
+exports.fetchPendingRecordings = fetchPendingRecordings;

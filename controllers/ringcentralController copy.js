@@ -4,6 +4,7 @@ const {
 } = require("../services/ringcentralService");
 const { getPlatform } = require("../config/ringcentral");
 const CallLog = require("../models/CallLog");
+const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 /* ====================================================
  🔧 HELPERS
@@ -11,24 +12,6 @@ const CallLog = require("../models/CallLog");
 
 // Normalize phone numbers
 const normalizeNumber = (num) => (num ? num.replace(/\D/g, "") : "");
-
-// Get active party from session
-async function getActiveParty(sessionId) {
-  const platform = getPlatform();
-
-  const res = await platform.get(
-    `/restapi/v1.0/account/~/telephony/sessions/${sessionId}`
-  );
-
-  const data = await res.json();
-  const party = data.parties?.find(
-    (p) => p.status?.code !== "Disconnected"
-  );
-
-  if (!party) throw new Error("Active party not found");
-
-  return { platform, partyId: party.id };
-}
 
 // Date range helper
 function getDateRange(dateRange) {
@@ -54,13 +37,15 @@ function getDateRange(dateRange) {
 }
 
 /* ====================================================
- 📥 INBOUND SUMMARY (ROLE BASED)
+ 📥 INBOUND SUMMARY
 ==================================================== */
 exports.fetchInboundSummary = async (req, res, returnRaw = false) => {
   try {
     const { dateFrom, dateTo } = getDateRange(req.query.dateRange);
-    const calls = (await getInboundCallLogs({ dateFrom, dateTo })) || [];
-    // Save inbound calls
+
+    const calls = await getInboundCallLogs({ dateFrom, dateTo }) || [];
+
+    // Save calls to DB
     await saveCallsToDB(calls, "Inbound");
 
     const role = req.user?.role;
@@ -68,6 +53,7 @@ exports.fetchInboundSummary = async (req, res, returnRaw = false) => {
     const normalizedAssigned = assignedNumbers.map(normalizeNumber);
 
     let filtered = calls;
+
     if (role !== "admin") {
       filtered = calls.filter(
         (c) =>
@@ -109,22 +95,25 @@ exports.fetchInboundSummary = async (req, res, returnRaw = false) => {
 
     return returnRaw ? response : res.json(response);
   } catch (err) {
-    console.error("❌ INBOUND ERROR:", err);
+    console.error("Inbound Error:", err);
     return returnRaw
       ? { success: false, summary: [] }
-      : res.status(500).json({ success: false, message: "Inbound fetch failed" });
+      : res.status(500).json({
+        success: false,
+        message: "Inbound fetch failed",
+      });
   }
 };
 
 /* ====================================================
- 📤 OUTBOUND SUMMARY (ROLE BASED)
+ 📤 OUTBOUND SUMMARY
 ==================================================== */
 exports.fetchOutboundSummary = async (req, res, returnRaw = false) => {
   try {
     const { dateFrom, dateTo } = getDateRange(req.query.dateRange);
-    const calls = (await getOutboundCallLogs({ dateFrom, dateTo })) || [];
 
-    // Save outbound calls
+    const calls = await getOutboundCallLogs({ dateFrom, dateTo }) || [];
+
     await saveCallsToDB(calls, "Outbound");
 
     const role = req.user?.role;
@@ -132,6 +121,7 @@ exports.fetchOutboundSummary = async (req, res, returnRaw = false) => {
     const normalizedAssigned = assignedNumbers.map(normalizeNumber);
 
     let filtered = calls;
+
     if (role !== "admin") {
       filtered = calls.filter(
         (c) =>
@@ -173,160 +163,587 @@ exports.fetchOutboundSummary = async (req, res, returnRaw = false) => {
 
     return returnRaw ? response : res.json(response);
   } catch (err) {
-    console.error("❌ OUTBOUND ERROR:", err);
+    console.error("Outbound Error:", err);
     return returnRaw
       ? { success: false, summary: [] }
-      : res.status(500).json({ success: false, message: "Outbound fetch failed" });
+      : res.status(500).json({
+        success: false,
+        message: "Outbound fetch failed",
+      });
   }
 };
+
 /* ====================================================
- 🔧 DB Save Helper
+ 💾 SAVE CALLS TO DB
 ==================================================== */
 async function saveCallsToDB(calls, direction) {
   if (!calls?.length) return;
 
-  const ops = calls.map((call) => {
-    const start = call.startTime ? new Date(call.startTime) : null;
+  try {
+    const ops = calls.map((call) => {
+      const start = call.startTime ? new Date(call.startTime) : null;
 
-    return {
-      updateOne: {
-        filter: { callId: call.id },
-        update: {
-          $set: {
-            callId: call.id,
-            direction,
+      const status =
+        call.result === "In Progress" ? "active" : "ended";
 
-            fromNumber:
-              call.fromNumber === "Unknown" ? null : call.fromNumber,
-
-            toNumber:
-              call.toNumber === "Unknown" ? null : call.toNumber,
-
-            startTime: start,
-
-            endTime:
-              start && call.duration
-                ? new Date(start.getTime() + call.duration * 1000)
-                : null,
-
-            duration: call.duration || 0,
-
-            result: call.result,
-            status: "ended",
-
-            rawPayload: call,
+      return {
+        updateOne: {
+          filter: { callId: call.id },
+          update: {
+            $set: {
+              callId: call.id,
+              direction,
+              fromNumber:
+                call.fromNumber === "Unknown" ? null : call.fromNumber,
+              toNumber:
+                call.toNumber === "Unknown" ? null : call.toNumber,
+              startTime: start,
+              endTime:
+                start && call.duration
+                  ? new Date(start.getTime() + call.duration * 1000)
+                  : null,
+              duration: call.duration || 0,
+              result: call.result,
+              status,
+              rawPayload: call,
+            },
           },
+          upsert: true,
         },
-        upsert: true,
-      },
-    };
-  });
+      };
+    });
 
-  await CallLog.bulkWrite(ops);
+    await CallLog.bulkWrite(ops, { ordered: false });
+
+  } catch (error) {
+    console.error("DB Save Error:", error.message);
+  }
 }
+
 /* ====================================================
- 🔧 fetchRecording
+ 🎙 FETCH RECORDING
 ==================================================== */
-async function fetchRecording(callId) {
-  const platform = getPlatform();
+async function fetchRecording(callId, retry = 0) {
+  try {
+    const platform = getPlatform();
 
-  const res = await platform.get(
-    `/restapi/v1.0/account/~/recording`,
-    { callLogId: callId }
-  );
+    // STEP 1: Get call log
+    const callLogRes = await platform.get(
+      `/restapi/v1.0/account/~/extension/~/call-log/${callId}`
+    );
 
-  const data = await res.json();
-  return data.records?.[0];
+    const callLog = await callLogRes.json();
+
+    if (!callLog?.recording?.id) {
+      console.log("❌ Recording not ready:", callId);
+      return null;
+    }
+
+    // STEP 2: Get recording details
+    const recRes = await platform.get(
+      `/restapi/v1.0/account/~/recording/${callLog.recording.id}`
+    );
+
+    const recording = await recRes.json();
+
+    console.log("✅ Recording Found:", recording.id);
+
+    return recording;
+
+  } catch (error) {
+    // ⭐ Rate limit handling
+    if (error.response?.status === 429 && retry < 3) {
+      console.log("⏳ Rate limit, retry after 60s...");
+      await delay(60000);
+      return fetchRecording(callId, retry + 1);
+    }
+
+    console.error("Recording Error:", error.message);
+    return null;
+  }
 }
+
+
+/* ====================================================
+ 🎙 FETCH PENDING RECORDINGS
+==================================================== */
+async function fetchPendingRecordings() {
+  const calls = await CallLog.find({
+    recordingId: null,
+    status: "ended",
+    recordingFetchAttempts: { $lt: 5 },
+  })
+    .sort({ createdAt: -1 })
+    .limit(5);
+
+  for (const call of calls) {
+    try {
+      console.log("📞 Checking call:", call.callId);
+
+      const recording = await fetchRecording(call.callId);
+
+      if (!recording) {
+        await CallLog.updateOne(
+          { callId: call.callId },
+          { $inc: { recordingFetchAttempts: 1 } }
+        );
+        continue;
+      }
+
+      await CallLog.updateOne(
+        { callId: call.callId },
+        {
+          $set: {
+            recordingId: recording.id,
+            recordingUrl: recording.contentUri,
+            insightsStatus: "pending",
+          },
+        }
+      );
+
+      await updateInsights({
+        callId: call.callId,
+        recordingId: recording.id,
+      });
+
+      await delay(15000);
+
+    } catch (err) {
+      console.error("Pending Recording Error:", err.message);
+    }
+  }
+}
+
+/* ====================================================
+ 🎙 fetchRingSenseInsights
+==================================================== */
+async function fetchRingSenseInsights(recordingId) {
+  try {
+    const platform = getPlatform();
+
+    const res = await platform.get(
+      `/ai/ringsense/v1/public/accounts/~/domains/phone/records/${recordingId}/insights`,
+      {
+        params: {
+          insightTypes:
+            "Transcript,Summary,Highlights,AIScore,CallNotes",
+        },
+      }
+    );
+
+    const data = await res.json();
+
+    console.log("===== RINGSENSE RESPONSE =====");
+    console.dir(data, { depth: null });
+    console.log("==============================");
+
+    return data;
+
+  } catch (err) {
+    if (err.response?.status === 404) {
+      console.log("⏳ Insights processing...");
+      return null;
+    }
+
+    console.error("RingSense Error:", err.message);
+    return null;
+  }
+}
+
+/* ====================================================
+ 🎙 updateInsights
+==================================================== */
+async function updateInsights(call) {
+  try {
+    if (!call?.recordingId) return;
+
+    const existing = await CallLog.findOne({ callId: call.callId });
+
+    if (
+      !existing ||
+      existing.insightsStatus === "completed" ||
+      existing.insightsFetchAttempts >= 5
+    )
+      return;
+
+    const insights = await fetchRingSenseInsights(call.recordingId);
+
+    if (!insights?.insights) {
+      await CallLog.updateOne(
+        { callId: call.callId },
+        { $inc: { insightsFetchAttempts: 1 } }
+      );
+      return;
+    }
+
+    await CallLog.updateOne(
+      { callId: call.callId },
+      {
+        $set: {
+          transcript: insights.insights.Transcript || "",
+          aiSummary: insights.insights.Summary || "",
+          aiScore: insights.insights.AIScore || 0,
+          highlights: insights.insights.Highlights || [],
+          callNotes: insights.insights.CallNotes || "",
+          insightsStatus: "completed",
+          insightsLastFetch: new Date(),
+        },
+      }
+    );
+
+    console.log("✅ Insights saved");
+
+  } catch (err) {
+    console.error("Insights Update Error:", err.message);
+  }
+}
+
+
 
 /* ====================================================
  📞 CALL CONTROLS
 ==================================================== */
+/* ====================================================
+ 📞 GET ACTIVE PARTY
+==================================================== */
 
-// ANSWER
+async function getActiveParty(callId) {
+  const platform = getPlatform();
+
+  const tokenValid = await platform.auth().accessTokenValid();
+  if (!tokenValid) {
+    throw new Error("RingCentral not logged in or token expired");
+  }
+
+  // Get telephony session
+  const res = await platform.get(
+    `/restapi/v1.0/account/~/telephony/sessions/${callId}`
+  );
+
+  const session = await res.json();
+
+  if (!session?.parties?.length) {
+    throw new Error("No active parties found");
+  }
+
+  // Find active party (connected or proceeding)
+  const activeParty = session.parties.find(
+    (p) =>
+      ["Setup", "Proceeding", "Answered", "Connected", "OnHold"].includes(
+        p.status?.code
+      )
+  );
+
+
+  if (!activeParty) {
+    throw new Error("No active party found");
+  }
+
+  return {
+    platform,
+    partyId: activeParty.id,
+  };
+}
+async function getDeviceId(platform) {
+  // const res = await platform.get('/restapi/v1.0/account/~/extension/~/device');
+  // const data = await res.json();
+  const res = await platform.get('/restapi/v1.0/account/~/extension/~/device');
+  const data = await res.json();
+
+  console.log("ALL DEVICES:");
+  console.log(JSON.stringify(data.records, null, 2));
+
+  const device = data.records.find(d =>
+  d.type === "WebRTC"
+);
+
+  if (!device) throw new Error("No softphone device found");
+
+  return device.id;
+}
+exports.getSipInfo = async (req, res) => {
+  try {
+    const platform = getPlatform();
+
+    const response = await platform.post(
+      '/restapi/v1.0/client-info/sip-provision',
+      {
+        sipInfo: [{ transport: 'WSS' }]
+      }
+    );
+
+    const data = await response.json();
+
+    res.json({
+      success: true,
+      sipInfo: data.sipInfo[0]
+    });
+
+  } catch (error) {
+    const errData = error.response
+      ? await error.response.json().catch(() => null)
+      : error.message;
+
+    res.status(500).json({
+      success: false,
+      error: errData
+    });
+  }
+};
+// Answer call API (RingCentral)
 exports.answerCall = async (req, res) => {
   try {
     const { callId } = req.body;
-    const { platform, partyId } = await getActiveParty(callId);
 
-    await platform.post(
-      `/restapi/v1.0/account/~/telephony/sessions/${callId}/parties/${partyId}/answer`
+    if (!callId) {
+      return res.status(400).json({
+        success: false,
+        message: "callId required"
+      });
+    }
+
+    const platform = getPlatform();
+
+    // 1️⃣ Get session
+    const sessionRes = await platform.get(
+      `/restapi/v1.0/account/~/telephony/sessions/${callId}`
+    );
+    const session = await sessionRes.json();
+
+    // 2️⃣ Find inbound ringing party
+    const ringingParty = session.parties.find(
+      p =>
+        p.direction === "Inbound" &&
+        p.status?.code === "Proceeding"
     );
 
-    res.json({ success: true, message: "Call answered" });
-  } catch (err) {
-    console.error("Answer error:", err.message);
-    res.status(500).json({ success: false, error: err.message });
+    if (!ringingParty) {
+      return res.status(400).json({
+        success: false,
+        message: "No ringing inbound party found"
+      });
+    }
+
+    // 3️⃣ Ensure device is ONLINE
+    const deviceRes = await platform.get(
+      '/restapi/v1.0/account/~/extension/~/device'
+    );
+    const devices = (await deviceRes.json()).records;
+
+    const device = devices.find(
+      d => d.type === "WebRTC" && d.status === "Online"
+    );
+
+    if (!device) {
+      return res.status(400).json({
+        success: false,
+        message: "WebRTC device is offline"
+      });
+    }
+
+    // 4️⃣ Answer call
+    await platform.post(
+      `/restapi/v1.0/account/~/telephony/sessions/${callId}/parties/${ringingParty.id}/answer`,
+      { deviceId: device.id }
+    );
+
+    return res.json({
+      success: true,
+      message: "Call answered successfully"
+    });
+
+  } catch (error) {
+    if (error.response) {
+      const data = await error.response.json().catch(() => null);
+      return res.status(error.response.status).json({
+        success: false,
+        ringcentralError: data
+      });
+    }
+
+    return res.status(500).json({
+      success: false,
+      error: error.message
+    });
   }
 };
-
 // HANGUP
 exports.hangupCall = async (req, res) => {
   try {
     const { callId } = req.body;
+
+    if (!callId) {
+      return res.status(400).json({
+        success: false,
+        message: "callId required"
+      });
+    }
+
+    // Get active party info
     const { platform, partyId } = await getActiveParty(callId);
 
+    if (!platform.loggedIn()) {
+      return res.status(401).json({
+        success: false,
+        message: "RingCentral not logged in"
+      });
+    }
+
+    // Hangup call
     await platform.delete(
       `/restapi/v1.0/account/~/telephony/sessions/${callId}/parties/${partyId}`
     );
 
-    res.json({ success: true, message: "Call ended" });
+    res.json({
+      success: true,
+      message: "Call ended successfully"
+    });
+
   } catch (err) {
-    console.error("Hangup error:", err.message);
-    res.status(500).json({ success: false, error: err.message });
+    console.error(
+      "Hangup error:",
+      err.response?.data || err.message
+    );
+
+    res.status(500).json({
+      success: false,
+      error: err.response?.data || err.message
+    });
   }
 };
 
-// MUTE / UNMUTE
+// MUTE / UNMUTE CALL
 exports.muteCall = async (req, res) => {
   try {
     const { callId, muted } = req.body;
+
+    // Validation
+    if (!callId || typeof muted !== "boolean") {
+      return res.status(400).json({
+        success: false,
+        message: "callId and muted (true/false) required"
+      });
+    }
+
+    // Get active call party
     const { platform, partyId } = await getActiveParty(callId);
 
+    if (!platform.loggedIn()) {
+      return res.status(401).json({
+        success: false,
+        message: "RingCentral not logged in"
+      });
+    }
+
+    // Patch call party
     await platform.patch(
       `/restapi/v1.0/account/~/telephony/sessions/${callId}/parties/${partyId}`,
       { muted }
     );
 
-    res.json({ success: true, muted });
+    res.json({
+      success: true,
+      muted,
+      message: muted ? "Call muted" : "Call unmuted"
+    });
+
   } catch (err) {
-    console.error("Mute error:", err.message);
-    res.status(500).json({ success: false, error: err.message });
+    console.error("Mute error:", err.response?.data || err.message);
+
+    res.status(500).json({
+      success: false,
+      error: err.response?.data || err.message
+    });
   }
 };
 
-// HOLD / RESUME
+// HOLD / RESUME CALL
 exports.holdCall = async (req, res) => {
   try {
     const { callId, hold } = req.body;
+
+    if (!callId || typeof hold !== "boolean") {
+      return res.status(400).json({
+        success: false,
+        message: "callId and hold(true/false) required"
+      });
+    }
+
     const { platform, partyId } = await getActiveParty(callId);
 
-    await platform.patch(
-      `/restapi/v1.0/account/~/telephony/sessions/${callId}/parties/${partyId}`,
-      { hold }
-    );
+    // HOLD or UNHOLD endpoint
+    const endpoint = hold
+      ? `/restapi/v1.0/account/~/telephony/sessions/${callId}/parties/${partyId}/hold`
+      : `/restapi/v1.0/account/~/telephony/sessions/${callId}/parties/${partyId}/unhold`;
 
-    res.json({ success: true, hold });
+    await platform.post(endpoint);
+
+    res.json({
+      success: true,
+      hold,
+      message: hold ? "Call placed on hold" : "Call resumed"
+    });
+
   } catch (err) {
-    console.error("Hold error:", err.message);
-    res.status(500).json({ success: false, error: err.message });
+    console.error("Hold error:", err.response?.data || err.message);
+
+    res.status(500).json({
+      success: false,
+      error: err.response?.data || err.message
+    });
   }
 };
 
-// RECORD / STOP
+
+// RECORD / STOP CALL RECORDING
 exports.recordCall = async (req, res) => {
   try {
     const { callId, recording } = req.body;
+
+    if (!callId) {
+      return res.status(400).json({
+        success: false,
+        message: "callId required"
+      });
+    }
+
     const { platform, partyId } = await getActiveParty(callId);
 
+    if (recording) {
+      // START recording
+      await platform.post(
+        `/restapi/v1.0/account/~/telephony/sessions/${callId}/parties/${partyId}/recordings`
+      );
+
+      return res.json({
+        success: true,
+        recording: true,
+        message: "Recording started"
+      });
+    }
+
+    // STOP recording → requires recordingId normally
+    // simplest way: pause recording (safe fallback)
     await platform.patch(
-      `/restapi/v1.0/account/~/telephony/sessions/${callId}/parties/${partyId}`,
-      { recording }
+      `/restapi/v1.0/account/~/telephony/sessions/${callId}/parties/${partyId}/recordings`,
+      { active: false }
     );
 
-    res.json({ success: true, recording });
+    res.json({
+      success: true,
+      recording: false,
+      message: "Recording stopped"
+    });
+
   } catch (err) {
-    console.error("Record error:", err.message);
-    res.status(500).json({ success: false, error: err.message });
+    console.error("Recording error:", err.response?.data || err.message);
+
+    res.status(500).json({
+      success: false,
+      error: err.response?.data || err.message
+    });
   }
 };
+
+exports.fetchPendingRecordings = fetchPendingRecordings;
+
