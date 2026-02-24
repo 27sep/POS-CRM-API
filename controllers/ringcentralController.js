@@ -401,134 +401,7 @@ async function updateInsights(call) {
 /* ====================================================
  🔥 FIXED: SIP INFO ENDPOINT (THIS IS THE ONLY ENDPOINT NEEDED FOR WEBRTC)
 ==================================================== */
-// Add this at the top of your file, outside the function
-const sipInfoCache = new Map(); // Store by user ID or identifier
-const CACHE_DURATION = 20 * 60 * 60 * 1000; // 20 hours in milliseconds (RingCentral credentials expire in 24h)
 
-exports.getSipInfo = async (req, res) => {
-  try {
-    console.log("📡 Getting SIP info for WebRTC...");
-    
-    // Get user identifier (use user ID from auth if available, otherwise use IP or session)
-    const userId = req.user?.id || req.user?._id || req.ip || 'anonymous';
-    
-    // Check cache first
-    const cached = sipInfoCache.get(userId);
-    if (cached && cached.expiresAt > Date.now()) {
-      console.log("✅ Returning CACHED SIP info for user:", userId);
-      return res.json({
-        success: true,
-        sipInfo: cached.sipInfo,
-        cached: true,
-        expiresIn: Math.round((cached.expiresAt - Date.now()) / 1000 / 60) + ' minutes'
-      });
-    }
-
-    const platform = getPlatform();
-
-    // Ensure we're logged in
-    const tokenValid = await platform.auth().accessTokenValid();
-    if (!tokenValid) {
-      console.log("🔄 Token expired, re-authenticating...");
-      await platform.login({
-        jwt: process.env.RINGCENTRAL_JWT.trim()
-      });
-    }
-
-    // Provision WebRTC device
-    console.log("📡 Requesting NEW SIP provision from RingCentral...");
-    const response = await platform.post(
-      '/restapi/v1.0/client-info/sip-provision',
-      {
-        sipInfo: [{ 
-          transport: 'WSS',
-        }]
-      }
-    );
-
-    const data = await response.json();
-    
-    console.log("✅ SIP Provision successful");
-    console.log("📱 Device ID:", data.device?.id);
-    console.log("📞 SIP Username:", data.sipInfo[0]?.username);
-
-    // Prepare SIP info object
-    const sipInfo = {
-      username: data.sipInfo[0].username,
-      password: data.sipInfo[0].password,
-      authorizationId: data.sipInfo[0].authorizationId || data.sipInfo[0].username,
-      domain: data.sipInfo[0].domain,
-      outboundProxy: data.sipInfo[0].outboundProxy,
-      transport: data.sipInfo[0].transport || 'WSS',
-      deviceId: data.device?.id
-    };
-
-    // Store in cache with expiration
-    sipInfoCache.set(userId, {
-      sipInfo,
-      expiresAt: Date.now() + CACHE_DURATION,
-      createdAt: new Date().toISOString()
-    });
-
-    // Clean up old cache entries occasionally (optional)
-    if (Math.random() < 0.1) { // 10% chance to clean up
-      cleanupCache();
-    }
-
-    res.json({
-      success: true,
-      sipInfo,
-      cached: false,
-      expiresIn: Math.round(CACHE_DURATION / 1000 / 60) + ' minutes'
-    });
-
-  } catch (error) {
-    console.error("❌ SIP Provision failed:", error);
-    
-    // Handle rate limiting specially
-    if (error.response?.status === 429) {
-      const retryAfter = error.retryAfter || 60000;
-      console.log(`⏳ Rate limited by RingCentral. Retry after ${retryAfter}ms`);
-      
-      // Get user ID for cache check
-      const userId = req.user?.id || req.user?._id || req.ip || 'anonymous';
-      
-      // Check if we have ANY cached version (even expired) to use as fallback
-      const cached = sipInfoCache.get(userId);
-      if (cached) {
-        console.log("⚠️ Using EXPIRED cache as fallback due to rate limiting");
-        return res.json({
-          success: true,
-          sipInfo: cached.sipInfo,
-          cached: true,
-          expired: true,
-          message: "Using cached credentials (may expire soon)"
-        });
-      }
-      
-      return res.status(429).json({
-        success: false,
-        error: "Rate limited by RingCentral",
-        message: "Too many requests. Please wait a minute and try again.",
-        retryAfter: retryAfter / 1000 + ' seconds'
-      });
-    }
-    
-    let errorData = error.message;
-    if (error.response) {
-      try {
-        errorData = await error.response.json();
-      } catch (e) {
-        errorData = error.response.statusText;
-      }
-    }
-
-    res.status(500).json({
-      success: false,
-      error: errorData
-    });
-  }
-};
 
 // Helper function to clean up expired cache entries
 function cleanupCache() {
@@ -546,7 +419,135 @@ function cleanupCache() {
   console.log(`✅ Removed ${expiredCount} expired cache entries`);
   console.log(`📊 Current cache size: ${sipInfoCache.size} entries`);
 }
+// Replace getSipInfo in your ringcentralController.js
 
+const sipInfoCache = new Map();
+const CACHE_DURATION = 60 * 60 * 1000; // 1 hour (not 20 — SIP creds can expire sooner)
+
+exports.getSipInfo = async (req, res) => {
+  try {
+    console.log("📡 Getting SIP info for WebRTC...");
+
+    const userId = req.user?.id || req.user?._id || req.ip || "anonymous";
+    const forceRefresh = req.query.refresh === "true"; // Allow forced refresh
+
+    // Check cache
+    const cached = sipInfoCache.get(userId);
+    if (!forceRefresh && cached && cached.expiresAt > Date.now()) {
+      console.log("✅ Returning CACHED SIP info for user:", userId);
+      return res.json({
+        success: true,
+        sipInfo: cached.sipInfo,
+        cached: true,
+        expiresIn: Math.round((cached.expiresAt - Date.now()) / 1000 / 60) + " minutes",
+      });
+    }
+
+    const platform = getPlatform();
+
+    // Ensure token is valid
+    const tokenValid = await platform.auth().accessTokenValid();
+    if (!tokenValid) {
+      console.log("🔄 Token expired, re-authenticating...");
+      await platform.login({ jwt: process.env.RINGCENTRAL_JWT.trim() });
+    }
+
+    console.log("📡 Requesting SIP provision from RingCentral...");
+
+    const response = await platform.post("/restapi/v1.0/client-info/sip-provision", {
+      sipInfo: [{ transport: "WSS" }],
+    });
+
+    const data = await response.json();
+
+    console.log("✅ SIP Provision response keys:", Object.keys(data));
+    console.log("📱 Device:", data.device?.id, data.device?.type);
+    console.log("📞 SIP entries:", data.sipInfo?.length);
+    console.log("📞 First SIP transport:", data.sipInfo?.[0]?.transport);
+    console.log("📞 First SIP domain:", data.sipInfo?.[0]?.domain);
+    console.log("📞 First SIP outboundProxy:", data.sipInfo?.[0]?.outboundProxy);
+
+    if (!data.sipInfo || data.sipInfo.length === 0) {
+      throw new Error("RingCentral returned empty sipInfo array");
+    }
+
+    // Use WSS transport entry specifically
+    const sipEntry = data.sipInfo.find((s) => s.transport === "WSS") || data.sipInfo[0];
+
+    console.log("📞 Using SIP entry:", {
+      transport: sipEntry.transport,
+      domain: sipEntry.domain,
+      username: sipEntry.username,
+      outboundProxy: sipEntry.outboundProxy,
+    });
+
+    const sipInfo = {
+      username: sipEntry.username,
+      password: sipEntry.password,
+      authorizationId: sipEntry.authorizationId || sipEntry.username,
+      domain: sipEntry.domain,
+      outboundProxy: sipEntry.outboundProxy,
+      transport: sipEntry.transport || "WSS",
+      deviceId: data.device?.id,
+    };
+
+    // Validate all required fields
+    const missing = ["username", "password", "domain", "outboundProxy"].filter(
+      (f) => !sipInfo[f]
+    );
+    if (missing.length > 0) {
+      throw new Error(`SIP info missing required fields: ${missing.join(", ")}`);
+    }
+
+    // Cache it
+    sipInfoCache.set(userId, {
+      sipInfo,
+      expiresAt: Date.now() + CACHE_DURATION,
+      createdAt: new Date().toISOString(),
+    });
+
+    return res.json({
+      success: true,
+      sipInfo,
+      cached: false,
+      expiresIn: Math.round(CACHE_DURATION / 1000 / 60) + " minutes",
+    });
+
+  } catch (error) {
+    console.error("❌ SIP Provision failed:", error.message);
+
+    const userId = req.user?.id || req.user?._id || req.ip || "anonymous";
+
+    // Rate limit — try expired cache as fallback
+    if (error.response?.status === 429) {
+      const cached = sipInfoCache.get(userId);
+      if (cached) {
+        console.log("⚠️ Rate limited — using expired cache as fallback");
+        return res.json({
+          success: true,
+          sipInfo: cached.sipInfo,
+          cached: true,
+          expired: true,
+          message: "Using cached credentials (rate limited)",
+        });
+      }
+      return res.status(429).json({
+        success: false,
+        error: "Rate limited by RingCentral. Please wait and try again.",
+      });
+    }
+
+    let errorData = error.message;
+    try {
+      if (error.response) errorData = await error.response.json();
+    } catch (_) {}
+
+    // Clear bad cache entry on error
+    sipInfoCache.delete(userId);
+
+    return res.status(500).json({ success: false, error: errorData });
+  }
+};
 /* ====================================================
  🗑️ REMOVED: All call control endpoints (answer, hangup, mute, hold)
  These are handled by WebRTC directly in the browser

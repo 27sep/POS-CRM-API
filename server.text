@@ -18,3 +18,5 @@ nano routes/ringcentralRoutes.js
 nano utils/socket.js
 git push crm  main
 git push origin main
+sudo lsof -i :5000
+sudo kill -9 274387
