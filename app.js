@@ -17,7 +17,8 @@ connectDB();
 app.use(cors({
   origin: [
     "http://localhost:3000",
-    "https://www.clydios.com"
+    "https://backend.clydios.com",
+    "https://clydios.com"
   ],
   methods: ["GET", "POST", "PUT", "DELETE"],
   credentials: true

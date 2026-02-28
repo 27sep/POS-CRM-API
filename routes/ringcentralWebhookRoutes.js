@@ -61,7 +61,7 @@ router.get("/verify-subscription", async (req, res) => {
 router.get("/webhook-debug", (req, res) => {
   const webhookUrl = process.env.WEBHOOK_PUBLIC_URL
     ? `${process.env.WEBHOOK_PUBLIC_URL}/api/ringcentral/webhook`
-    : "❌ Not configured - run: https://www.clydios.com";
+    : "❌ Not configured - run: https://backend.clydios.com";
 
   res.json({
     success: true,
@@ -72,10 +72,10 @@ router.get("/webhook-debug", (req, res) => {
     timestamp: new Date().toISOString(),
     instructions: {
       step1: "ngrok http 5000",
-      step2: "Copy the https://www.clydios.com URL",
-      step3: "Add to .env: WEBHOOK_PUBLIC_URL=https://www.clydios.com",
+      step2: "Copy the https://backend.clydios.com URL",
+      step3: "Add to .env: WEBHOOK_PUBLIC_URL=https://backend.clydios.com",
       step4: "Restart server: npm run dev",
-      step5: "Run: curl -X POST https://www.clydios.com/api/ringcentral/create-subscription",
+      step5: "Run: curl -X POST https://backend.clydios.com/api/ringcentral/create-subscription",
       step6: "Update RingCentral Console with the same URL"
     }
   });

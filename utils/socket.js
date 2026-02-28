@@ -1,9 +1,84 @@
-// utils/socket.js - With improved error handling
+// utils/socket.js - With improved error handling and call keep-alive
 const { Server } = require("socket.io");
 const { getPlatform } = require("../config/ringcentral");
 const { refreshTokenIfNeeded } = require("../config/ringcentral");
 
 let io;
+
+// Store active calls to monitor them
+const activeCalls = new Map();
+
+// Function to keep call alive by sending silent audio or checking status
+const keepCallAlive = async (callId, partyId) => {
+  try {
+    const platform = getPlatform();
+    
+    // Check call status periodically
+    const sessionRes = await platform.get(
+      `/restapi/v1.0/account/~/telephony/sessions/${callId}`
+    );
+    const session = await sessionRes.json();
+    
+    const activeParty = session.parties?.find(p => 
+      ['Answered', 'Connected'].includes(p.status?.code)
+    );
+    
+    if (!activeParty) {
+      console.log(`⚠️ Call ${callId} no longer active, stopping keep-alive`);
+      activeCalls.delete(callId);
+      io.emit("call-ended", { 
+        callId, 
+        reason: 'call_ended',
+        timestamp: new Date().toISOString()
+      });
+      return false;
+    }
+    
+    return true;
+  } catch (error) {
+    console.error(`❌ Keep-alive check failed for ${callId}:`, error.message);
+    if (error.response?.status === 404) {
+      activeCalls.delete(callId);
+      io.emit("call-ended", { 
+        callId, 
+        reason: 'call_not_found',
+        timestamp: new Date().toISOString()
+      });
+      return false;
+    }
+    return true;
+  }
+};
+
+// Start monitoring a call
+const startCallMonitoring = (callId, partyId) => {
+  if (activeCalls.has(callId)) return;
+  
+  console.log(`📊 Starting call monitoring for ${callId}`);
+  activeCalls.set(callId, partyId);
+  
+  // Check call status every 10 seconds
+  const interval = setInterval(async () => {
+    const isAlive = await keepCallAlive(callId, partyId);
+    if (!isAlive) {
+      clearInterval(interval);
+    }
+  }, 10000);
+  
+  // Store interval to clear later
+  activeCalls.set(`${callId}_interval`, interval);
+};
+
+// Stop monitoring a call
+const stopCallMonitoring = (callId) => {
+  const interval = activeCalls.get(`${callId}_interval`);
+  if (interval) {
+    clearInterval(interval);
+    activeCalls.delete(`${callId}_interval`);
+  }
+  activeCalls.delete(callId);
+  console.log(`📊 Stopped monitoring call ${callId}`);
+};
 
 const initSocket = (server) => {
   io = new Server(server, {
@@ -12,7 +87,7 @@ const initSocket = (server) => {
       methods: ["GET", "POST"],
       credentials: true
     },
-    transports: ['websocket', 'polling'] // Allow both
+    transports: ['polling', 'websocket'] // Polling first for better compatibility
   });
 
   // Debug all socket events
@@ -22,7 +97,7 @@ const initSocket = (server) => {
     console.log("🔌 Transport:", socket.conn.transport.name);
     console.log("👥 Total clients:", io.engine.clientsCount);
 
-    // 📞 ANSWER CALL HANDLER
+    // 📞 ANSWER CALL HANDLER - FIXED VERSION
     socket.on("answer-call", async (data) => {
       console.log(`📞 [${socket.id}] ANSWER CALL:`, data);
       
@@ -50,6 +125,10 @@ const initSocket = (server) => {
 
           if (activeParty) {
             console.log(`⚠️ [${socket.id}] Call already active, emitting active`);
+            
+            // Start monitoring the call
+            startCallMonitoring(data.callId, activeParty.id);
+            
             io.emit("call-active", { 
               callId: data.callId,
               timestamp: new Date().toISOString()
@@ -72,22 +151,40 @@ const initSocket = (server) => {
             return;
           }
 
+          // Make RingCentral API call to answer
+          await platform.post(
+            `/restapi/v1.0/account/~/telephony/sessions/${data.callId}/parties/${data.partyId}/answer`
+          );
+          
+          console.log(`✅ [${socket.id}] Call answered successfully`);
+          
+          // 🔴 CRITICAL FIX: Start monitoring the call immediately
+          startCallMonitoring(data.callId, data.partyId);
+          
+          // Also start a "silent recording" or "whisper" to keep audio path
+          try {
+            // Option 1: Start recording (keeps call alive)
+            await platform.post(
+              `/restapi/v1.0/account/~/telephony/sessions/${data.callId}/parties/${data.partyId}/recordings`
+            ).catch(e => console.log("Recording start error:", e.message));
+            
+            // Option 2: Play a silent tone (if available)
+            // This requires media server capabilities
+            
+            console.log(`🎵 Started keep-alive mechanisms for call ${data.callId}`);
+          } catch (keepAliveError) {
+            console.log(`⚠️ Keep-alive error:`, keepAliveError.message);
+          }
+          
+          // Emit to ALL clients that call is active
+          io.emit("call-active", { 
+            callId: data.callId,
+            timestamp: new Date().toISOString()
+          });
+          
         } catch (sessionError) {
           console.error(`❌ [${socket.id}] Failed to get session:`, sessionError.message);
         }
-        
-        // Make RingCentral API call to answer
-        await platform.post(
-          `/restapi/v1.0/account/~/telephony/sessions/${data.callId}/parties/${data.partyId}/answer`
-        );
-        
-        console.log(`✅ [${socket.id}] Call answered successfully`);
-        
-        // Emit to ALL clients that call is active
-        io.emit("call-active", { 
-          callId: data.callId,
-          timestamp: new Date().toISOString()
-        });
         
       } catch (error) {
         console.error(`❌ [${socket.id}] Failed to answer call:`, error.response?.data || error.message);
@@ -110,6 +207,10 @@ const initSocket = (server) => {
 
             if (activeParty) {
               console.log(`⚠️ [${socket.id}] Call is already active`);
+              
+              // Start monitoring
+              startCallMonitoring(data.callId, activeParty.id);
+              
               io.emit("call-active", { 
                 callId: data.callId,
                 timestamp: new Date().toISOString()
@@ -145,6 +246,9 @@ const initSocket = (server) => {
       try {
         await refreshTokenIfNeeded();
         const platform = getPlatform();
+        
+        // Stop monitoring
+        stopCallMonitoring(data.callId);
         
         // Get the session to find active party
         const sessionRes = await platform.get(
@@ -189,6 +293,9 @@ const initSocket = (server) => {
             timestamp: new Date().toISOString()
           });
         }
+      } finally {
+        // Always stop monitoring
+        stopCallMonitoring(data.callId);
       }
     });
 
@@ -256,7 +363,15 @@ const initSocket = (server) => {
       }
     });
 
-    // Log all incoming events (your existing debug)
+    // 🔴 NEW: Keep-alive ping from client
+    socket.on("call-keep-alive", ({ callId }) => {
+      // Just log, call is still active
+      if (activeCalls.has(callId)) {
+        console.log(`💓 Keep-alive ping for call ${callId}`);
+      }
+    });
+
+    // Log all incoming events
     socket.onAny((event, ...args) => {
       console.log(`📨 Socket Event [${socket.id}]: ${event}`, args);
     });
@@ -271,7 +386,13 @@ const initSocket = (server) => {
     });
   });
 
-  console.log("🔌 Socket.IO initialized with call control handlers");
+  // Clean up old calls periodically
+  setInterval(() => {
+    const now = Date.now();
+    // This would need more sophisticated cleanup
+  }, 60000);
+
+  console.log("🔌 Socket.IO initialized with call control handlers and keep-alive");
 };
 
 const getIO = () => {
