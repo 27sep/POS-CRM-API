@@ -187,10 +187,20 @@ const initSocket = (server) => {
         }
         
       } catch (error) {
+        const errMsg = error.response?.data?.message || error.response?.data?.errorDescription || error.message || "Unknown error";
+        const errStatus = error.response?.status;
         console.error(`❌ [${socket.id}] Failed to answer call:`, error.response?.data || error.message);
-        
+
+        const emitAnswerFailed = (message) => {
+          io.emit("answer-failed", {
+            callId: data.callId,
+            error: message,
+            timestamp: new Date().toISOString()
+          });
+        };
+
         // Handle specific error cases
-        if (error.response?.status === 400) {
+        if (errStatus === 400) {
           console.log(`⚠️ [${socket.id}] Bad request - call might be already answered or ended`);
           
           // Try to get call state to determine what to emit
@@ -216,25 +226,18 @@ const initSocket = (server) => {
                 timestamp: new Date().toISOString()
               });
             } else {
-              console.log(`⚠️ [${socket.id}] Call is not active, emitting ended`);
-              io.emit("call-ended", { 
-                callId: data.callId,
-                timestamp: new Date().toISOString()
-              });
+              console.log(`⚠️ [${socket.id}] Call is not active, emitting answer-failed`);
+              emitAnswerFailed(errMsg || "Call could not be answered. It may have ended or the device may be offline.");
             }
           } catch (e) {
-            // If we can't get session, assume call ended
-            io.emit("call-ended", { 
-              callId: data.callId,
-              timestamp: new Date().toISOString()
-            });
+            emitAnswerFailed(errMsg || "Could not answer call.");
           }
-        } else if (error.response?.status === 404) {
-          console.log(`⚠️ [${socket.id}] Call not found, emitting ended`);
-          io.emit("call-ended", { 
-            callId: data.callId,
-            timestamp: new Date().toISOString()
-          });
+        } else if (errStatus === 404) {
+          console.log(`⚠️ [${socket.id}] Call not found`);
+          emitAnswerFailed("Call not found or already ended.");
+        } else {
+          // Any other error (e.g. 503, WebRTC device offline, network)
+          emitAnswerFailed(errMsg);
         }
       }
     });

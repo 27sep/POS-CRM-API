@@ -23,3 +23,4 @@ git push crm  main
 git push origin main
 sudo lsof -i :5000
 sudo kill -9 274387
+ssh -t Abrar_S@lish-us-mia.linode.com ubuntu-us-mia
