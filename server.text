@@ -19,12 +19,14 @@ nano utils/socket.js
 nano app.js
 nano server.js
 nano routes/ringcentralWebhookRoutes.js
+nano .env
 
 git push crm  main
 git push origin main
 sudo lsof -i :5000
 sudo kill -9 274387
 ssh -t Abrar_S@lish-us-mia.linode.com ubuntu-us-mia
-
+TechCrew2026!
 touch services/ringcentralWebsocket.js
-nano services/ringcentralWebsocket.js
+nano services/scrapingService.js
+nano controllers/scrapingController.js

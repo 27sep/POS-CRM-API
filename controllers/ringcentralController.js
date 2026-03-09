@@ -422,7 +422,7 @@ function cleanupCache() {
 // Replace getSipInfo in your ringcentralController.js
 
 const sipInfoCache = new Map();
-const CACHE_DURATION = 60 * 60 * 1000; // 1 hour (not 20 — SIP creds can expire sooner)
+const CACHE_DURATION = 25 * 60 * 1000; // 25 minutes — SIP provision tokens expire ~30 min
 
 exports.getSipInfo = async (req, res) => {
   try {
